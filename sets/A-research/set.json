@@ -1,0 +1,5 @@
+{
+  "title": "A 글·조사",
+  "checks": ["checks/footnotes.py"],
+  "agents": ["agents/근거확인자.md"]
+}

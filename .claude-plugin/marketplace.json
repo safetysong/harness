@@ -1,0 +1,14 @@
+{
+  "name": "safetysong-harness",
+  "owner": {
+    "name": "safetysong"
+  },
+  "plugins": [
+    {
+      "name": "harness",
+      "source": "./",
+      "description": "하네스(공통 바닥판 + 세트 A·B·C)",
+      "version": "0.1.2"
+    }
+  ]
+}

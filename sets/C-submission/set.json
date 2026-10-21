@@ -1,0 +1,5 @@
+{
+  "title": "C 제출물",
+  "checks": ["checks/requirements.py"],
+  "agents": ["agents/심사위원.md"]
+}

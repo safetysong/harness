@@ -1,0 +1,5 @@
+{
+  "title": "B 앱·코드",
+  "checks": ["checks/syntax.py"],
+  "agents": ["agents/코드검토자.md"]
+}

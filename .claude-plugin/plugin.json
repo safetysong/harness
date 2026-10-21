@@ -1,0 +1,16 @@
+{
+  "name": "harness",
+  "version": "0.1.2",
+  "description": "Claude 작업장 표준: 공통 바닥판(한국어·저장소·끝 점검·실수 기록 지킴이) + 세트 A 글·조사, B 앱·코드, C 제출물",
+  "author": {
+    "name": "safetysong"
+  },
+  "repository": "https://github.com/safetysong/harness",
+  "hooks": "./core/plugin-hooks.json",
+  "agents": [
+    "./sets/A-research/agents/근거확인자.md",
+    "./sets/B-app/agents/코드검토자.md",
+    "./sets/C-submission/agents/심사위원.md"
+  ],
+  "license": "MIT"
+}

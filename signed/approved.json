@@ -1,0 +1,17 @@
+{
+  "version": "0.1.2",
+  "bundles": {
+    "A-research": {
+      "file": "dist/A-research.tar",
+      "sha256": "c7786c45f6119ac4b116639ff074adba6bf193264c1696117c3185e89c17e9aa"
+    },
+    "B-app": {
+      "file": "dist/B-app.tar",
+      "sha256": "6e26072803689b95f92e2d01905aae4247979707c59936436017046f4ca34cef"
+    },
+    "C-submission": {
+      "file": "dist/C-submission.tar",
+      "sha256": "623f839eb5110ab40caeef9c911fc9c96fc58fe925d11f6ca9c91cf18e8d2b27"
+    }
+  }
+}

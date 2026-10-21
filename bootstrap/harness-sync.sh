@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+# 하네스 받기 장치: 각 프로젝트의 .claude/harness-sync.sh 로 넣는 단 하나의 파일.
+#
+#   harness-sync.sh start           세션 시작 훅. 새 판을 받아 본 뒤(startup일 때만) 시작 안내를 보여 준다.
+#   harness-sync.sh sync            새 판 받기만 한다.
+#   harness-sync.sh hook <이름> [모드]  .claude/harness/core/hooks/<이름>.py 를 돌린다.
+#
+# 안전 규칙
+# - 받은 묶음의 sha256이 원본 main의 signed/approved.json 과 다르면 받지 않고 지금 판을 쓴다.
+# - 네트워크가 안 되면 조용히 지금 판을 쓴다.
+# - 파이썬이나 훅 파일이 없거나 훅이 고장 나면 일을 막지 않고 통과시킨다(fail open).
+#   훅이 일부러 막을 때(끝 번호 2)만 막는다.
+set -u
+
+PROJECT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+ROOT="${HARNESS_ROOT:-$PROJECT/.claude/harness}"
+STATE="$PROJECT/.claude/harness-state"
+
+find_python() {
+  for p in python3 python; do
+    if command -v "$p" >/dev/null 2>&1 && "$p" -c 'import sys; sys.exit(sys.version_info < (3, 8))' 2>/dev/null; then
+      echo "$p"; return 0
+    fi
+  done
+  return 1
+}
+
+PY="$(find_python || true)"
+
+run_hook() {
+  # $1 이름, $2 모드(없어도 됨), 입력은 $INPUT
+  local script="$ROOT/core/hooks/$1.py"
+  [ -n "$PY" ] && [ -f "$script" ] || return 0
+  local code=0
+  printf '%s' "$INPUT" | "$PY" "$script" ${2:+"$2"} || code=$?
+  [ "$code" -eq 2 ] && return 2
+  if [ "$1" = "korean-guard" ] && [ "${2:-}" = "pre" ] && [ -f "$PROJECT/.claude/hooks/work_guard.py" ]; then
+    # 프로젝트에 자체 지킴이가 있으면 한국어 점검을 통과한 뒤 같이 돌린다
+    code=0
+    printf '%s' "$INPUT" | HARNESS_EVENT=PreToolUse "$PY" "$PROJECT/.claude/hooks/work_guard.py" || code=$?
+    [ "$code" -eq 2 ] && return 2
+  fi
+  return 0
+}
+
+do_sync() {
+  [ -n "$PY" ] || { mkdir -p "$STATE"; echo "하네스 받기 꺼짐(파이썬 없음)" > "$STATE/sync-status.txt"; return 0; }
+  [ -n "${HARNESS_ROOT:-}" ] && return 0   # 플러그인으로 쓸 때는 플러그인이 판을 관리
+  mkdir -p "$STATE"
+  PROJECT="$PROJECT" ROOT="$ROOT" STATE="$STATE" "$PY" - <<'PYEOF' || true
+import hashlib, json, os, re, shutil, sys, tarfile, tempfile, urllib.request
+
+project, root, state = os.environ["PROJECT"], os.environ["ROOT"], os.environ["STATE"]
+status_file = os.path.join(state, "sync-status.txt")
+
+
+def status(msg):
+    with open(status_file, "w", encoding="utf-8") as f:
+        f.write(msg + "\n")
+    sys.exit(0)
+
+
+try:
+    with open(os.path.join(project, ".claude", "harness.json"), encoding="utf-8") as f:
+        cfg = json.load(f)
+except Exception:
+    status("하네스 받기 꺼짐(.claude/harness.json 없음)")
+set_name = cfg.get("set", "")
+source = cfg.get("source", "safetysong/harness")
+if not re.fullmatch(r"[A-Za-z0-9_-]+", set_name) or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", source):
+    status("하네스 받기 꺼짐(harness.json의 set 또는 source가 이상함)")
+base = os.environ.get("HARNESS_SOURCE_URL") or "https://raw.githubusercontent.com/%s/main" % source
+
+
+def local_version():
+    try:
+        with open(os.path.join(root, "VERSION"), encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return None
+
+
+def fetch(url, limit=5_000_000):
+    with urllib.request.urlopen(url, timeout=6) as r:
+        data = r.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError("너무 큼")
+    return data
+
+
+now = local_version()
+try:
+    approved = json.loads(fetch(base + "/signed/approved.json"))
+    entry = approved["bundles"][set_name]
+    want_hash, file_name, new = entry["sha256"].lower(), entry["file"], approved["version"]
+except KeyError:
+    status("경고: 승인 목록에 세트 %s 가 없어요. 지금 판 %s 유지" % (set_name, now or "없음"))
+except Exception:
+    status("새 판 확인 못 함(네트워크). 지금 판 %s 유지" % (now or "없음"))
+
+active_set = None
+try:
+    with open(os.path.join(root, "SET"), encoding="utf-8") as f:
+        active_set = f.read().strip()
+except Exception:
+    pass
+if now == new and active_set == set_name:
+    status("최신 판 %s" % now)
+if not re.fullmatch(r"dist/[A-Za-z0-9_.-]+\.tar", file_name):
+    status("경고: 승인 목록의 묶음 이름이 이상해요. 지금 판 %s 유지" % (now or "없음"))
+try:
+    blob = fetch(base + "/" + file_name)
+except Exception:
+    status("새 판 %s 받기 실패(네트워크). 지금 판 %s 유지" % (new, now or "없음"))
+if hashlib.sha256(blob).hexdigest() != want_hash:
+    status("경고: 받은 묶음이 승인 목록(해시)과 달라 받지 않았어요. 지금 판 %s 유지" % (now or "없음"))
+
+parent = os.path.dirname(root)
+os.makedirs(parent, exist_ok=True)
+tmp = tempfile.mkdtemp(prefix=".harness-new-", dir=parent)
+try:
+    path = os.path.join(tmp, "b.tar")
+    with open(path, "wb") as f:
+        f.write(blob)
+    out = os.path.join(tmp, "x")
+    with tarfile.open(path) as t:
+        for m in t.getmembers():
+            n = m.name
+            if not (m.isfile() or m.isdir()) or n.startswith(("/", "\\")) or ".." in re.split(r"[/\\]", n):
+                raise ValueError("이상한 파일 " + n)
+        if hasattr(tarfile, "data_filter"):
+            t.extractall(out, filter="data")
+        else:
+            t.extractall(out)
+    with open(os.path.join(out, "VERSION"), encoding="utf-8") as f:
+        if f.read().strip() != new:
+            raise ValueError("판 번호가 다름")
+    with open(os.path.join(out, "SET"), "w", encoding="utf-8") as f:
+        f.write(set_name + "\n")
+    old = None
+    if os.path.exists(root):
+        old = os.path.join(tmp, "old")
+        os.rename(root, old)
+    try:
+        os.rename(out, root)
+    except Exception:
+        if old:
+            os.rename(old, root)  # 바꾸다 실패하면 옛 판을 되돌려 놓는다
+        raise
+    agents = os.path.join(root, "sets", set_name, "agents")
+    if os.path.isdir(agents):
+        dest = os.path.join(project, ".claude", "agents")
+        os.makedirs(dest, exist_ok=True)
+        for name in os.listdir(agents):
+            try:
+                shutil.copyfile(os.path.join(agents, name), os.path.join(dest, name))
+            except OSError:
+                pass  # 에이전트 복사 실패는 하네스를 멈추지 않는다
+except Exception as e:
+    status("경고: 새 판 %s 풀기 실패(%s). 지금 판 %s 유지" % (new, e, now or "없음"))
+finally:
+    shutil.rmtree(tmp, ignore_errors=True)
+status("새 판 %s 받음(전 판 %s). 훅은 이번 시작부터, settings 바뀐 것은 다시 설치한 뒤 다음 시작부터 켜짐. "
+       "바뀐 .claude/harness 는 커밋에 같이 넣기" % (new, now or "없음"))
+PYEOF
+}
+
+cmd="${1:-}"
+case "$cmd" in
+  start)
+    INPUT="$(cat 2>/dev/null || true)"
+    case "$INPUT" in
+      *'"source"'*'"startup"'*|'') do_sync ;;
+    esac
+    run_hook session-start || true
+    exit 0
+    ;;
+  sync)
+    do_sync
+    cat "$STATE/sync-status.txt" 2>/dev/null
+    exit 0
+    ;;
+  hook)
+    INPUT="$(cat 2>/dev/null || true)"
+    [ -n "${2:-}" ] || exit 0
+    case "$2" in *[!A-Za-z0-9_-]*) exit 0 ;; esac
+    run_hook "$2" "${3:-}"
+    exit $?
+    ;;
+  *)
+    echo "쓰는 법: harness-sync.sh start | sync | hook <이름> [모드]" >&2
+    exit 0
+    ;;
+esac
