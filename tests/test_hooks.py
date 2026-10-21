@@ -31,7 +31,9 @@ class Project:
         self.transcript = os.path.join(self.dir, "transcript.jsonl")
 
     def git(self, *args):
-        subprocess.run(["git", *args], cwd=self.dir, check=True, capture_output=True)
+        # 커밋 뒤 git이 뒤에서 하는 정리(maintenance)를 끈다. 켜 두면 .git을 지우는 시험과 부딪힌다.
+        subprocess.run(["git", "-c", "maintenance.auto=false", "-c", "gc.auto=0", *args], cwd=self.dir,
+                       check=True, capture_output=True)
 
     def write(self, rel, text):
         path = os.path.join(self.dir, rel)
