@@ -146,6 +146,20 @@ class RepoGuard(Base):
         _, out, _ = p.hook("repo-guard", {"tool_name": "PowerShell",
                                           "tool_input": {"command": "git clone https://github.com/me/mine.git"}})
         self.assertEqual(out, "")
+        for cmd in ("git.exe clone https://github.com/other/x", "Git Clone https://github.com/other/x",
+                    "gh.exe repo clone other/x"):
+            _, out, _ = p.hook("repo-guard", {"tool_name": "PowerShell", "tool_input": {"command": cmd}})
+            self.assertEqual(decision(out), "ask", cmd)
+
+    def test_korean_input_in_cp949_locale(self):
+        p = self.project({"repo": "me/mine"})
+        data = json.dumps({"tool_name": "PowerShell", "tool_input": {
+            "command": "git clone https://github.com/other/x  # 한글"}}, ensure_ascii=False).encode("utf-8")
+        r = subprocess.run(["bash", SYNC, "hook", "repo-guard"], input=data, capture_output=True,
+                           env=p.env(HARNESS_ROOT=ROOT, PYTHONIOENCODING="cp949"), cwd=p.dir)
+        out = json.loads(r.stdout.decode("utf-8"))
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "ask")
+        self.assertIn("저장소 지킴이", out["hookSpecificOutput"]["permissionDecisionReason"])
 
     def test_no_repo_config_only_add_repo(self):
         p = self.project({})
