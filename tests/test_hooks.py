@@ -138,6 +138,15 @@ class RepoGuard(Base):
         _, out, _ = p.hook("repo-guard", {"tool_name": "Bash", "tool_input": {"command": "ls -la"}})
         self.assertEqual(out, "")
 
+    def test_powershell_clone(self):
+        p = self.project({"repo": "me/mine"})
+        _, out, _ = p.hook("repo-guard", {"tool_name": "PowerShell",
+                                          "tool_input": {"command": "Set-Location C:\\w; git clone https://github.com/other/x"}})
+        self.assertEqual(decision(out), "ask")
+        _, out, _ = p.hook("repo-guard", {"tool_name": "PowerShell",
+                                          "tool_input": {"command": "git clone https://github.com/me/mine.git"}})
+        self.assertEqual(out, "")
+
     def test_no_repo_config_only_add_repo(self):
         p = self.project({})
         _, out, _ = p.hook("repo-guard", {"tool_name": "mcp__github__get_file_contents",
@@ -519,6 +528,18 @@ class Sync(Base):
         self.assertIn("받음", r.stdout)
         self.assertIn("## 완료 조건", r.stdout)
 
+    def test_start_without_python_says_so(self):
+        p = self.project({"set": "B-app"})
+        bindir = os.path.join(p.dir, "onlybash")
+        os.makedirs(bindir)
+        for tool in ("bash", "cat"):
+            os.symlink(shutil.which(tool), os.path.join(bindir, tool))
+        e = p.env(PATH=bindir)
+        r = subprocess.run([shutil.which("bash"), SYNC, "start"], input="{}", capture_output=True, text=True,
+                           env=e, cwd=p.dir)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("파이썬(3.8 이상)을 찾지 못해", r.stdout)
+
     def test_hook_dispatch(self):
         p = self.project({"set": "B-app", "unattended": True})
         add = json.dumps({"tool_name": "x__add_repo", "tool_input": {"repo": "b"}})
@@ -556,6 +577,17 @@ class Bundles(Base):
                     ".claude-plugin/marketplace.json", "signed/approved.json"):
             with open(os.path.join(ROOT, rel), encoding="utf-8") as f:
                 json.load(f)
+
+    def test_hooks_fail_open_and_cover_powershell(self):
+        for rel in ("core/settings.core.json", "core/plugin-hooks.json"):
+            with open(os.path.join(ROOT, rel), encoding="utf-8") as f:
+                hooks = json.load(f)["hooks"]
+            for event, groups in hooks.items():
+                for g in groups:
+                    for h in g["hooks"]:
+                        self.assertEqual(h.get("onFailure"), "continue", (rel, event))
+            matchers = [g.get("matcher", "") for g in hooks["PreToolUse"]]
+            self.assertTrue(any("PowerShell" in m and "Bash" in m for m in matchers), rel)
 
     def test_claude_template_short(self):
         with open(os.path.join(ROOT, "core", "CLAUDE.template.md"), encoding="utf-8") as f:

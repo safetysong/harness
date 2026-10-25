@@ -17,7 +17,7 @@ ROOT="${HARNESS_ROOT:-$PROJECT/.claude/harness}"
 STATE="$PROJECT/.claude/harness-state"
 
 find_python() {
-  for p in python3 python; do
+  for p in python3 python py; do  # py: 윈도 파이썬 실행기
     if command -v "$p" >/dev/null 2>&1 && "$p" -c 'import sys; sys.exit(sys.version_info < (3, 8))' 2>/dev/null; then
       echo "$p"; return 0
     fi
@@ -172,6 +172,10 @@ case "$cmd" in
     case "$INPUT" in
       *'"source"'*'"startup"'*|'') do_sync ;;
     esac
+    if [ -z "$PY" ]; then
+      echo "[장치 상태] 파이썬(3.8 이상)을 찾지 못해 하네스 장치가 모두 꺼져 있어요. 파이썬을 깔면 다음 시작부터 켜져요."
+      exit 0
+    fi
     run_hook session-start || true
     exit 0
     ;;

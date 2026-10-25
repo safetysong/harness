@@ -1,6 +1,6 @@
 {
   "name": "harness",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Claude 작업장 표준: 공통 바닥판(한국어·저장소·끝 점검·실수 기록 지킴이) + 세트 A 글·조사, B 앱·코드, C 제출물",
   "author": {
     "name": "safetysong"

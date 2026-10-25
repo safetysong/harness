@@ -9,7 +9,7 @@ harness.json에 repo(예 "owner/name")를 정하면 아래도 같은 방식으�
 - 다른 저장소를 가리키는 GitHub 도구(owner/repo가 다름)
 - 다른 저장소를 가리키는 GitHub 도구(owner/repo가 다름)
 - repo: 조건 없이 GitHub 전체를 뒤지는 검색
-- 다른 저장소 git clone, git remote add / set-url, gh repo clone
+- 다른 저장소 git clone, git remote add / set-url, gh repo clone (Bash와 PowerShell 도구 모두)
 """
 import os
 import re
@@ -81,7 +81,7 @@ def main():
             stop("저장소 지킴이: %s/%s 는 이 프로젝트 저장소(%s)가 아니에요. 이 프로젝트는 저장소 하나만 다뤄요." % (owner, name, repo),
                     "다른저장소")
         return
-    if tool == "Bash":
+    if tool in ("Bash", "PowerShell"):  # 윈도는 PowerShell 도구로 같은 명령을 쓸 수 있다
         check_bash(str(ti.get("command", "")), repo)
 
 
