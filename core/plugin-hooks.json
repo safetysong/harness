@@ -8,7 +8,8 @@
           {
             "type": "command",
             "command": "HARNESS_ROOT=\"${CLAUDE_PLUGIN_ROOT}\" bash \"${CLAUDE_PLUGIN_ROOT}/bootstrap/harness-sync.sh\" start",
-            "timeout": 30
+            "timeout": 30,
+            "onFailure": "continue"
           }
         ]
       }
@@ -19,7 +20,8 @@
           {
             "type": "command",
             "command": "HARNESS_ROOT=\"${CLAUDE_PLUGIN_ROOT}\" bash \"${CLAUDE_PLUGIN_ROOT}/bootstrap/harness-sync.sh\" hook turn-start",
-            "timeout": 10
+            "timeout": 10,
+            "onFailure": "continue"
           }
         ]
       }
@@ -31,17 +33,19 @@
           {
             "type": "command",
             "command": "HARNESS_ROOT=\"${CLAUDE_PLUGIN_ROOT}\" bash \"${CLAUDE_PLUGIN_ROOT}/bootstrap/harness-sync.sh\" hook korean-guard pre",
-            "timeout": 10
+            "timeout": 10,
+            "onFailure": "continue"
           }
         ]
       },
       {
-        "matcher": "Bash|mcp__github__.*|.*add_repo",
+        "matcher": "Bash|PowerShell|mcp__github__.*|.*add_repo",
         "hooks": [
           {
             "type": "command",
             "command": "HARNESS_ROOT=\"${CLAUDE_PLUGIN_ROOT}\" bash \"${CLAUDE_PLUGIN_ROOT}/bootstrap/harness-sync.sh\" hook repo-guard",
-            "timeout": 10
+            "timeout": 10,
+            "onFailure": "continue"
           }
         ]
       }
@@ -53,7 +57,8 @@
           {
             "type": "command",
             "command": "HARNESS_ROOT=\"${CLAUDE_PLUGIN_ROOT}\" bash \"${CLAUDE_PLUGIN_ROOT}/bootstrap/harness-sync.sh\" hook korean-guard post",
-            "timeout": 10
+            "timeout": 10,
+            "onFailure": "continue"
           }
         ]
       }
@@ -65,7 +70,8 @@
           {
             "type": "command",
             "command": "HARNESS_ROOT=\"${CLAUDE_PLUGIN_ROOT}\" bash \"${CLAUDE_PLUGIN_ROOT}/bootstrap/harness-sync.sh\" hook mistake-log",
-            "timeout": 10
+            "timeout": 10,
+            "onFailure": "continue"
           }
         ]
       }
@@ -76,12 +82,14 @@
           {
             "type": "command",
             "command": "HARNESS_ROOT=\"${CLAUDE_PLUGIN_ROOT}\" bash \"${CLAUDE_PLUGIN_ROOT}/bootstrap/harness-sync.sh\" hook stop-check",
-            "timeout": 600
+            "timeout": 600,
+            "onFailure": "continue"
           },
           {
             "type": "command",
             "command": "HARNESS_ROOT=\"${CLAUDE_PLUGIN_ROOT}\" bash \"${CLAUDE_PLUGIN_ROOT}/bootstrap/harness-sync.sh\" hook korean-guard stop",
-            "timeout": 10
+            "timeout": 10,
+            "onFailure": "continue"
           }
         ]
       }

@@ -29,7 +29,12 @@
       "Edit(~/.zshrc)",
       "Edit(~/.profile)",
       "Edit(./.claude/harness/**)",
-      "Write(./.claude/harness/**)"
+      "Write(./.claude/harness/**)",
+      "PowerShell(git push --force *)",
+      "PowerShell(git push -f *)",
+      "PowerShell(git reset --hard *)",
+      "PowerShell(git clean -fdx *)",
+      "PowerShell(Remove-Item -Recurse -Force C:\\*)"
     ]
   },
   "hooks": {
@@ -40,7 +45,8 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/harness-sync.sh\" start",
-            "timeout": 30
+            "timeout": 30,
+            "onFailure": "continue"
           }
         ]
       }
@@ -51,7 +57,8 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/harness-sync.sh\" hook turn-start",
-            "timeout": 10
+            "timeout": 10,
+            "onFailure": "continue"
           }
         ]
       }
@@ -63,17 +70,19 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/harness-sync.sh\" hook korean-guard pre",
-            "timeout": 10
+            "timeout": 10,
+            "onFailure": "continue"
           }
         ]
       },
       {
-        "matcher": "Bash|mcp__github__.*|.*add_repo",
+        "matcher": "Bash|PowerShell|mcp__github__.*|.*add_repo",
         "hooks": [
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/harness-sync.sh\" hook repo-guard",
-            "timeout": 10
+            "timeout": 10,
+            "onFailure": "continue"
           }
         ]
       }
@@ -85,7 +94,8 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/harness-sync.sh\" hook korean-guard post",
-            "timeout": 10
+            "timeout": 10,
+            "onFailure": "continue"
           }
         ]
       }
@@ -97,7 +107,8 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/harness-sync.sh\" hook mistake-log",
-            "timeout": 10
+            "timeout": 10,
+            "onFailure": "continue"
           }
         ]
       }
@@ -108,12 +119,14 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/harness-sync.sh\" hook stop-check",
-            "timeout": 600
+            "timeout": 600,
+            "onFailure": "continue"
           },
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/harness-sync.sh\" hook korean-guard stop",
-            "timeout": 10
+            "timeout": 10,
+            "onFailure": "continue"
           }
         ]
       }
