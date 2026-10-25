@@ -13,7 +13,7 @@
 - 윈도 PC면 Git for Windows(git과 bash가 같이 깔림)와 파이썬(3.8 이상)이 있는지 봅니다.
   `bash --version`, `python --version`(또는 `py --version`). 없으면 사용자에게 설치를 부탁합니다.
   bash가 없으면 하네스 훅이 돌지 않습니다(일은 막지 않고 장치만 꺼짐). 파이썬이 없으면 시작할 때
-  「[장치 상태] 파이썬을 찾지 못해 하네스 장치가 모두 꺼져 있어요」가 나옵니다.
+  「[장치 상태] 파이썬(3.8 이상)을 찾지 못해 하네스 장치가 모두 꺼져 있어요」가 나옵니다.
 
 ## 1. 받기 장치 넣기
 ```bash
@@ -46,6 +46,7 @@ bash .claude/harness-sync.sh sync
 `.claude/harness/core/settings.core.json` 을 프로젝트 `.claude/settings.json` 에 합칩니다.
 기존 내용은 지우지 않고, 금지 목록은 합집합으로 합니다. 훅은 예전 하네스 훅(harness-sync.sh 를 부르는 것)만 빼고
 새 판 훅을 이벤트마다 뒤에 붙입니다. 그래서 판을 올린 뒤 이 단계를 다시 해도 훅이 두 번 들어가지 않습니다.
+윈도에서는 아래 `python3` 를 `python` 또는 `py` 로 바꿔 돌립니다.
 ```bash
 python3 - <<'PY'
 import json, os
@@ -58,9 +59,10 @@ deny += [d for d in core["permissions"]["deny"] if d not in deny]
 hooks = cur.setdefault("hooks", {})
 def is_harness(g):
     return any("harness-sync.sh" in h.get("command", "") for h in g.get("hooks", []))
+for event in list(hooks):
+    hooks[event] = [g for g in hooks[event] if not is_harness(g)]
 for event, groups in core["hooks"].items():
-    have = [g for g in hooks.get(event, []) if not is_harness(g)]
-    hooks[event] = have + groups
+    hooks[event] = hooks.get(event, []) + groups
 json.dump(cur, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 PY
 ```

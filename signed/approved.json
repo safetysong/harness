@@ -3,15 +3,15 @@
   "bundles": {
     "A-research": {
       "file": "dist/A-research.tar",
-      "sha256": "4f94820c6051328f1ccf31ef24697da9dd66e41c8ab1831f60bc4353f222edb6"
+      "sha256": "284abd165ac52132dcb77bb682cc065e27fd501d08259f41244bad7827ebcf48"
     },
     "B-app": {
       "file": "dist/B-app.tar",
-      "sha256": "f54bc6c68d1422c7385387a4989a5857beb700bcdcadd44cdfe8cf6b86890cbe"
+      "sha256": "55f81b6f42b18303915d33b76c1050e0e4890d1262d22d3f95cd289c01d887c7"
     },
     "C-submission": {
       "file": "dist/C-submission.tar",
-      "sha256": "bb30cd00e4e2167ab30a8effeb6b449cc045ce93f61655b5b3afeff636a8668a"
+      "sha256": "fa51cc6ffabc3406722bbc28e54962acbf40edb6ba0fa107a1de876fc8509a3f"
     }
   }
 }

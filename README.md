@@ -95,8 +95,9 @@ tests/       훅 시험(bash tests/run.sh)
 - **Git for Windows**를 깔아 주세요. git과 bash가 같이 깔립니다. Claude Code가 bash를 못 찾으면 하네스 훅이 돌지 않습니다.
   이때도 일은 막지 않고(훅마다 `onFailure: continue`) 장치만 꺼집니다. bash를 다른 곳에 깔았으면 `CLAUDE_CODE_GIT_BASH_PATH` 로 알려 줍니다.
 - **파이썬**(python.org)을 깔아 주세요. `python3`, `python`, `py` 순서로 찾습니다. 못 찾으면 시작할 때
-  「[장치 상태] 파이썬을 찾지 못해 하네스 장치가 모두 꺼져 있어요」가 나옵니다.
-- 윈도의 **PowerShell 도구**도 지킴이가 봅니다. 저장소 지킴이는 PowerShell 명령도 검사하고, 금지 목록에도 PowerShell 판이 있습니다.
+  「[장치 상태] 파이썬(3.8 이상)을 찾지 못해 하네스 장치가 모두 꺼져 있어요」가 나옵니다.
+- 윈도의 **PowerShell 도구**도 지킴이가 봅니다. 저장소 지킴이는 PowerShell 명령도 검사하고, 금지 목록에는 git 위험 명령(강제 푸시 등)의 PowerShell 판이 있습니다. 파일 지우기 같은 PowerShell 명령은 아직 금지 목록에 없습니다.
+- 받기 장치(`.claude/harness-sync.sh`)는 스스로 바뀌지 않습니다. 0.1.2 이전에 깐 윈도 프로젝트는 설치 1번(받기 장치 다시 받기)과 4번(설정 합치기)을 다시 해야 이 윈도 고침이 켜집니다.
 - Claude Code 2.1.295 이상이 필요합니다(`onFailure` 칸).
 
 ## 라이선스

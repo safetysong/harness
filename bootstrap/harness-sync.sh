@@ -26,6 +26,8 @@ find_python() {
 }
 
 PY="$(find_python || true)"
+# 한국어 윈도는 기본 글자판이 cp949라 훅 입력·출력(UTF-8 JSON)이 깨진다. 파이썬을 늘 UTF-8로 돌린다.
+export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
 
 run_hook() {
   # $1 이름, $2 모드(없어도 됨), 입력은 $INPUT

@@ -39,10 +39,12 @@ def same(repo, owner, name):
 
 
 def check_bash(cmd, repo):
-    for m in re.finditer(r"\b(git\s+clone|git\s+remote\s+(?:add|set-url)|gh\s+repo\s+clone)\b([^;&|\n]*)", cmd):
+    # PowerShell은 대소문자를 안 가리고 git.exe 처럼 .exe를 붙여도 된다
+    for m in re.finditer(r"\b(git(?:\.exe)?\s+clone|git(?:\.exe)?\s+remote\s+(?:add|set-url)|gh(?:\.exe)?\s+repo\s+clone)\b"
+                         r"([^;&|\n]*)", cmd, re.I):
         rest = m.group(2)
         urls = URL_RE.findall(rest + " ")
-        if m.group(1).startswith("gh"):
+        if m.group(1).lower().startswith("gh"):
             t = re.search(r"\s([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)", rest)
             urls = urls or ([t.groups()] if t else [])
         if not urls:

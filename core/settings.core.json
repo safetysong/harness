@@ -30,11 +30,10 @@
       "Edit(~/.profile)",
       "Edit(./.claude/harness/**)",
       "Write(./.claude/harness/**)",
-      "PowerShell(git push --force *)",
-      "PowerShell(git push -f *)",
-      "PowerShell(git reset --hard *)",
-      "PowerShell(git clean -fdx *)",
-      "PowerShell(Remove-Item -Recurse -Force C:\\*)"
+      "PowerShell(git push --force:*)",
+      "PowerShell(git push -f:*)",
+      "PowerShell(git reset --hard:*)",
+      "PowerShell(git clean -fdx:*)"
     ]
   },
   "hooks": {
