@@ -27,12 +27,20 @@ def state_dir():
     return d
 
 
+_INPUT = {}
+
+
 def read_input():
+    """훅 입력(JSON). 읽기 전용 판단 등에 쓰려고 기억해 둔다."""
+    global _INPUT
     try:
         data = sys.stdin.read()
-        return json.loads(data) if data.strip() else {}
+        _INPUT = json.loads(data) if data.strip() else {}
     except Exception:
-        return {}
+        _INPUT = {}
+    if not isinstance(_INPUT, dict):
+        _INPUT = {}
+    return _INPUT
 
 
 def load_config():
@@ -54,23 +62,51 @@ def harness_version():
         return "?"
 
 
-def set_dir(cfg):
-    name = cfg.get("set") or ""
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
-        return None
-    d = os.path.join(HARNESS_ROOT, "sets", name)
-    return d if os.path.isdir(d) else None
+def set_names(cfg):
+    """harness.json의 set. 이름 하나, 이름 목록(두 세트), 또는 비움/"core"(바닥판만)."""
+    raw = cfg.get("set")
+    names = raw if isinstance(raw, list) else [raw] if raw else []
+    return [n for n in names if isinstance(n, str) and re.fullmatch(r"[A-Za-z0-9_-]+", n) and n != "core"]
 
 
-def load_set_info(cfg):
-    d = set_dir(cfg)
-    if not d:
-        return {}
-    try:
-        with open(os.path.join(d, "set.json"), encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+def set_dirs(cfg):
+    out = []
+    for n in set_names(cfg):
+        d = os.path.join(HARNESS_ROOT, "sets", n)
+        if os.path.isdir(d):
+            out.append(d)
+    return out
+
+
+def set_infos(cfg):
+    """[(세트 폴더, set.json 내용)]"""
+    out = []
+    for d in set_dirs(cfg):
+        try:
+            with open(os.path.join(d, "set.json"), encoding="utf-8") as f:
+                out.append((d, json.load(f)))
+        except Exception:
+            out.append((d, {}))
+    return out
+
+
+def is_read_only():
+    """읽기만 하는 세션이면 프로젝트 파일(실수기록.md, 장치 기록)을 고치지 않는다.
+
+    harness.json "read_only": true, 환경 변수 HARNESS_READ_ONLY=1, 또는 이번 세션의 첫 사용자 말에
+    「읽기만」이 들어 있으면 읽기 전용으로 본다.
+    """
+    if os.environ.get("HARNESS_READ_ONLY", "").lower() in ("1", "true", "yes"):
+        return True
+    if load_config().get("read_only") is True:
+        return True
+    for d in transcript(_INPUT.get("transcript_path") or ""):
+        if is_real_prompt(d):
+            c = (d.get("message") or {}).get("content")
+            text = c if isinstance(c, str) else " ".join(
+                str(b.get("text", "")) for b in c or [] if isinstance(b, dict))
+            return "읽기만" in text
+    return False
 
 
 def progress_path(cfg):
@@ -109,6 +145,7 @@ def emit(obj):
 
 def deny(reason, rule):
     """PreToolUse에서 도구 사용을 막는다. 막은 일은 실수 기록에도 남긴다."""
+    bump_stat("막음:저장소지킴이")
     record_mistake("막힘:" + rule, reason)
     emit({
         "hookSpecificOutput": {
@@ -126,10 +163,16 @@ MISTAKE_FILE = "mistakes.json"
 
 
 class _Lock:
-    """여러 훅이 동시에 실수 기록을 고치지 않게 잠근다(잠글 수 없는 곳에서는 그냥 진행)."""
+    """여러 훅이 동시에 같은 파일을 고치지 않게 잠근다(잠글 수 없는 곳에서는 그냥 진행).
+
+    잠금 이름마다 따로 잠근다. 같은 이름을 잠근 채로 또 잠그면 멈추니, 실수 기록과 숫자 기록은 이름이 다르다.
+    """
+
+    def __init__(self, name="mistakes"):
+        self.name = name
 
     def __enter__(self):
-        self.f = open(os.path.join(state_dir(), "mistakes.lock"), "w")
+        self.f = open(os.path.join(state_dir(), self.name + ".lock"), "w")
         try:
             import fcntl
             fcntl.flock(self.f, fcntl.LOCK_EX)
@@ -141,16 +184,21 @@ class _Lock:
         self.f.close()
 
 
-def record_mistake(kind, detail):
-    """같은 종류가 2번째면 실수기록.md에 적고 True를 돌려준다."""
+def record_mistake(kind, detail, tool_failure=False):
+    """같은 종류가 2번째면 True를 돌려준다.
+
+    Claude의 실수(지킴이가 막음, 완료 조건 실패)는 2번째에 실수기록.md에 적는다.
+    도구 고장(시간 초과, 인터넷 끊김, 명령 실패 등)은 실수기록.md에 적지 않고 따로 센다.
+    읽기 전용 세션에서는 실수기록.md를 고치지 않는다.
+    """
     try:
         with _Lock():
-            return _record_mistake(kind, detail)
+            return _record_mistake(kind, detail, tool_failure)
     except Exception:
         return False
 
 
-def _record_mistake(kind, detail):
+def _record_mistake(kind, detail, tool_failure):
     path = os.path.join(state_dir(), MISTAKE_FILE)
     data = {}
     if os.path.exists(path):
@@ -163,15 +211,79 @@ def _record_mistake(kind, detail):
     second = entry["count"] >= 2 and not entry["logged"]
     if second:
         entry["logged"] = True
-        log = os.path.join(project_dir(), "실수기록.md")
-        new = not os.path.exists(log)
-        with open(log, "a", encoding="utf-8") as f:
-            if new:
-                f.write("# 실수 기록\n\n같은 종류 실수가 2번 나면 하네스가 여기에 적습니다. "
-                        "적힌 것은 장치(훅·검사)로 바꿀 후보입니다.\n\n")
-            f.write("- %s · %s · %s\n" % (time.strftime("%Y-%m-%d"), kind, detail[:200].replace("\n", " ")))
+        if not tool_failure and not is_read_only():
+            log = os.path.join(project_dir(), "실수기록.md")
+            new = not os.path.exists(log)
+            with open(log, "a", encoding="utf-8") as f:
+                if new:
+                    f.write("# 실수 기록\n\n같은 종류 실수가 2번 나면 하네스가 여기에 적습니다. "
+                            "적힌 것은 장치(훅·검사)로 바꿀 후보입니다.\n\n")
+                f.write("- %s · %s · %s\n" % (time.strftime("%Y-%m-%d"), kind, detail[:200].replace("\n", " ")))
+            bump_stat("실수기록")
     write_atomic(path, json.dumps(data, ensure_ascii=False, indent=1))
     return second
+
+
+# ---- 장치 숫자 기록 -----------------------------------------------------------
+# 막은 횟수·경고·실수·도구 고장을 세션 안에서 모았다가(state_dir), 답이 끝날 때(stop-check)
+# git에 남는 .claude/harness-stats.jsonl 의 「오늘 줄」 하나에 더한다. 하루에 한 줄만 쓴다.
+
+STATS_PENDING = "stats-pending.json"
+STATS_FILE = os.path.join(".claude", "harness-stats.jsonl")
+STATS_KEEP_DAYS = 120
+
+
+def bump_stat(name, n=1):
+    try:
+        with _Lock("stats"):
+            path = os.path.join(state_dir(), STATS_PENDING)
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                data = {}
+            day = data.setdefault(time.strftime("%Y-%m-%d"), {})
+            day[name] = int(day.get(name, 0)) + n
+            write_atomic(path, json.dumps(data, ensure_ascii=False))
+    except Exception:
+        pass
+
+
+def flush_stats():
+    """모아 둔 숫자를 git에 남는 파일에 더한다. 읽기 전용 세션이면 그대로 둔다."""
+    if is_read_only():
+        return
+    try:
+        with _Lock("stats"):
+            pending_path = os.path.join(state_dir(), STATS_PENDING)
+            try:
+                with open(pending_path, encoding="utf-8") as f:
+                    pending = json.load(f)
+            except Exception:
+                return
+            if not pending:
+                return
+            path = os.path.join(project_dir(), STATS_FILE)
+            rows = {}
+            for line in (read_text(path) or "").splitlines():
+                try:
+                    r = json.loads(line)
+                    if isinstance(r, dict) and isinstance(r.get("date"), str):
+                        rows[r["date"]] = r.get("counts") or {}
+                except ValueError:
+                    pass
+            for date, counts in pending.items():
+                cur = rows.setdefault(date, {})
+                for k, v in counts.items():
+                    cur[k] = int(cur.get(k, 0)) + int(v)
+            keep = sorted(rows)[-STATS_KEEP_DAYS:]
+            text = "".join(json.dumps({"date": d, "counts": dict(sorted(rows[d].items()))}, ensure_ascii=False) + "\n"
+                           for d in keep)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            write_atomic(path, text)
+            os.remove(pending_path)
+    except Exception:
+        pass
 
 
 def kind_of_error(tool_name, error):

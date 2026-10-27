@@ -282,6 +282,11 @@ class StopCheck(Base):
                           tool("Edit", file_path=os.path.join(p.dir, "진행상황.md"))])
         self.assertEqual(p.hook("stop-check", {"session_id": "s4", "transcript_path": p.transcript})[1], "")
 
+    def test_progress_check_off(self):
+        p = self.project({"progress_check": False}, PROGRESS.format(cmd="true"))
+        p.set_transcript([user("고쳐 줘"), tool("Edit", file_path=os.path.join(p.dir, "앱.py"))])
+        self.assertEqual(p.hook("stop-check", {"session_id": "pc", "transcript_path": p.transcript})[1], "")
+
     def test_no_progress_file_passes(self):
         p = self.project({})
         self.assertEqual(p.hook("stop-check", {"session_id": "s5"})[1], "")
@@ -368,18 +373,41 @@ class StopCheck(Base):
 
 
 class MistakeLog(Base):
-    def test_second_same_failure_logged(self):
+    def test_tool_failures_counted_apart(self):
         p = self.project({})
         data = {"hook_event_name": "PostToolUseFailure", "tool_name": "Bash",
                 "error": "cat: /tmp/a1/x.txt: No such file or directory"}
         self.assertEqual(p.hook("mistake-log", data)[1], "")
         data["error"] = "cat: /home/b2/y.txt: No such file or directory"
         _, out, _ = p.hook("mistake-log", data)
-        self.assertIn("실수 기록", out["hookSpecificOutput"]["additionalContext"])
-        self.assertIn("No such file", p.read("실수기록.md"))
-        # 세 번째는 다시 적지 않는다
-        self.assertEqual(p.hook("mistake-log", data)[1], "")
+        self.assertIn("도구 고장", out["hookSpecificOutput"]["additionalContext"])
+        # 도구 고장은 실수기록.md에 적지 않는다
+        self.assertFalse(os.path.exists(os.path.join(p.dir, "실수기록.md")))
+        pending = json.loads(p.read(".claude/harness-state/stats-pending.json"))
+        self.assertEqual(list(pending.values())[0]["도구실패"], 2)
+
+    def test_claude_mistake_logged_on_second(self):
+        p = self.project({"unattended": True})
+        d = {"tool_name": "mcp__claude-code-remote__add_repo", "tool_input": {"owner": "a", "repo": "b"}}
+        p.hook("repo-guard", d)
+        self.assertFalse(os.path.exists(os.path.join(p.dir, "실수기록.md")))
+        p.hook("repo-guard", d)
         self.assertEqual(len([x for x in p.read("실수기록.md").splitlines() if x.startswith("- ")]), 1)
+
+    def test_read_only_session_does_not_write(self):
+        p = self.project({"unattended": True})
+        p.set_transcript([user("safety-wiki 내용 확인해 줘. 읽기만 해")])
+        d = {"tool_name": "x__add_repo", "tool_input": {"repo": "b"}, "transcript_path": p.transcript}
+        p.hook("repo-guard", d)
+        p.hook("repo-guard", d)
+        self.assertFalse(os.path.exists(os.path.join(p.dir, "실수기록.md")))
+        p.hook("stop-check", {"session_id": "r1", "transcript_path": p.transcript})
+        self.assertFalse(os.path.exists(os.path.join(p.dir, ".claude/harness-stats.jsonl")))
+        p2 = self.project({"unattended": True, "read_only": True})
+        d2 = {"tool_name": "x__add_repo", "tool_input": {"repo": "b"}}
+        p2.hook("repo-guard", d2)
+        p2.hook("repo-guard", d2)
+        self.assertFalse(os.path.exists(os.path.join(p2.dir, "실수기록.md")))
 
     def test_different_failures_not_logged(self):
         p = self.project({})
@@ -387,12 +415,26 @@ class MistakeLog(Base):
         p.hook("mistake-log", {"tool_name": "Bash", "error": "전혀 다른 오류"})
         self.assertFalse(os.path.exists(os.path.join(p.dir, "실수기록.md")))
 
-    def test_guard_blocks_count(self):
-        p = self.project({"unattended": True})
-        d = {"tool_name": "mcp__claude-code-remote__add_repo", "tool_input": {"owner": "a", "repo": "b"}}
+
+
+class Stats(Base):
+    def test_daily_line_and_fingerprint_ignores_it(self):
+        p = self.project({"unattended": True}, PROGRESS.format(cmd="echo 돌았음 >> ran.txt"))
+        p.write(".gitignore", "ran.txt\n.claude/harness-state/\n")
+        d = {"tool_name": "x__add_repo", "tool_input": {"repo": "b"}}
         p.hook("repo-guard", d)
+        p.hook("stop-check", {"session_id": "t1", "transcript_path": p.transcript})
+        rows = [json.loads(x) for x in p.read(".claude/harness-stats.jsonl").splitlines()]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["counts"]["막음:저장소지킴이"], 1)
         p.hook("repo-guard", d)
-        self.assertIn("저장소붙이기", p.read("실수기록.md"))
+        p.hook("stop-check", {"session_id": "t1", "transcript_path": p.transcript})
+        rows = [json.loads(x) for x in p.read(".claude/harness-stats.jsonl").splitlines()]
+        self.assertEqual(len(rows), 1)  # 하루 한 줄
+        self.assertEqual(rows[0]["counts"]["막음:저장소지킴이"], 2)
+        self.assertEqual(rows[0]["counts"]["실수기록"], 1)
+        # 장치 기록이 바뀐 것만으로는 완료 조건을 다시 돌리지 않는다
+        self.assertEqual(p.read("ran.txt").count("돌았음"), 1)
 
 
 class SessionStart(Base):
@@ -404,6 +446,21 @@ class SessionStart(Base):
         for word in ("## 지금 상태", "## 완료 조건", "## 다음 할 일", "## 꼭 기억", "세트 C 제출물 안내",
                      "[마감] 2099-01-01", "[장치 상태]", "지침 2자", "저장소(me/mine)", "Read로 먼저"):
             self.assertIn(word, out)
+
+    def test_two_sets_and_core_only(self):
+        p = self.project({"set": ["A-research", "B-app"]}, PROGRESS.format(cmd="true"))
+        _, out, _ = p.hook("session-start", {"source": "startup"})
+        self.assertIn("세트 A 글·조사 + B 앱·코드", out)
+        self.assertIn("세트 A 글·조사 안내", out)
+        self.assertIn("세트 B 앱·코드 안내", out)
+        p.write("깨진.json", "{")
+        p.write("원고.md", "주장[^1]\n")
+        _, out, _ = p.hook("stop-check", {"session_id": "two", "transcript_path": p.transcript})
+        self.assertIn("깨진.json", out["reason"])
+        self.assertIn("각주", out["reason"])
+        p2 = self.project({"set": "core"})
+        _, out, _ = p2.hook("session-start", {"source": "startup"})
+        self.assertIn("바닥판만(세트 없음)", out)
 
     def test_missing_progress(self):
         p = self.project({})
@@ -510,6 +567,56 @@ class Sync(Base):
         self.assertTrue(os.path.isfile(os.path.join(p.dir, ".claude/agents/심사위원.md")))
         self.assertFalse(os.path.exists(os.path.join(p.dir, ".claude/harness/sets/A-research")))
         self.assertIn("최신 판", self.sync(p, "sync").stdout)
+
+    def test_two_sets_and_core(self):
+        p = self.project({"set": ["A-research", "C-submission"]})
+        r = self.sync(p, "sync")
+        self.assertIn("받음", r.stdout)
+        for rel in ("sets/A-research/set.json", "sets/C-submission/set.json", "core/hooks/stop-check.py"):
+            self.assertTrue(os.path.isfile(os.path.join(p.dir, ".claude/harness", rel)), rel)
+        self.assertFalse(os.path.exists(os.path.join(p.dir, ".claude/harness/sets/B-app")))
+        self.assertTrue(os.path.isfile(os.path.join(p.dir, ".claude/agents/근거확인자.md")))
+        self.assertTrue(os.path.isfile(os.path.join(p.dir, ".claude/agents/심사위원.md")))
+        self.assertIn("최신 판", self.sync(p, "sync").stdout)
+        p2 = self.project({"set": "core"})
+        self.assertIn("받음", self.sync(p2, "sync").stdout)
+        self.assertFalse(os.path.exists(os.path.join(p2.dir, ".claude/harness/sets")))
+
+    def test_upgrade(self):
+        p = self.project({"set": "B-app"})
+        old_hook = {"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/harness-sync.sh\" hook stop-check"}
+        mine = {"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop-check.sh\""}
+        p.write(".claude/hooks/stop-check.sh", "#!/bin/bash\n# 진행상황.md 갱신 안 했으면 막기\nexit 0\n")
+        p.write(".claude/settings.json", json.dumps({"hooks": {"Stop": [{"hooks": [old_hook]}, {"hooks": [mine]}],
+                                                              "OldEvent": [{"hooks": [old_hook]}]},
+                                                    "permissions": {"deny": ["Bash(mine:*)"]}}))
+        p.write(".claude/harness-sync.sh", "# 옛 받기 장치\n")
+        r = self.sync(p, "upgrade")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with open(SYNC, encoding="utf-8") as f:
+            self.assertEqual(p.read(".claude/harness-sync.sh"), f.read())
+        st = json.loads(p.read(".claude/settings.json"))
+        self.assertNotIn("OldEvent", st["hooks"])
+        stop_cmds = [h["command"] for g in st["hooks"]["Stop"] for h in g["hooks"]]
+        self.assertEqual(sum("hook stop-check" in c for c in stop_cmds), 1)
+        self.assertIn(mine["command"], stop_cmds)
+        self.assertIn("Bash(mine:*)", st["permissions"]["deny"])
+        self.assertTrue(any("PowerShell" in g.get("matcher", "") for g in st["hooks"]["PreToolUse"]))
+        self.assertIs(json.loads(p.read(".claude/harness.json"))["progress_check"], False)
+        self.assertIn("옛 진행상황 검사 장치", r.stdout)
+        # 다시 해도 같은 결과
+        self.sync(p, "upgrade")
+        self.assertEqual(json.loads(p.read(".claude/settings.json")), st)
+
+    def test_upgrade_stops_on_bad_hash(self):
+        p = self.project({"set": "B-app"})
+        with open(os.path.join(self.src, "dist", "B-app.tar"), "ab") as f:
+            f.write(b"x")
+        p.write(".claude/harness-sync.sh", "# 옛 받기 장치\n")
+        r = self.sync(p, "upgrade")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(p.read(".claude/harness-sync.sh"), "# 옛 받기 장치\n")
+        self.assertFalse(os.path.exists(os.path.join(p.dir, ".claude/settings.json")))
 
     def test_hash_mismatch_keeps_old(self):
         p = self.project({"set": "B-app"})

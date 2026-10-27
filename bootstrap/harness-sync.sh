@@ -3,6 +3,7 @@
 #
 #   harness-sync.sh start           세션 시작 훅. 새 판을 받아 본 뒤(startup일 때만) 시작 안내를 보여 준다.
 #   harness-sync.sh sync            새 판 받기만 한다.
+#   harness-sync.sh upgrade         새 판을 받고, 이 받기 장치와 settings.json 자리까지 최신으로 맞춘다.
 #   harness-sync.sh hook <이름> [모드]  .claude/harness/core/hooks/<이름>.py 를 돌린다.
 #
 # 안전 규칙
@@ -67,9 +68,13 @@ try:
         cfg = json.load(f)
 except Exception:
     status("하네스 받기 꺼짐(.claude/harness.json 없음)")
-set_name = cfg.get("set", "")
+raw = cfg.get("set")
+names = raw if isinstance(raw, list) else [raw] if raw else []
+names = [n for n in names if n != "core"] or ["core"]  # 세트가 없으면 바닥판만
+set_name = " ".join(names)
 source = cfg.get("source", "safetysong/harness")
-if not re.fullmatch(r"[A-Za-z0-9_-]+", set_name) or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", source):
+if (len(names) > 3 or not all(isinstance(n, str) and re.fullmatch(r"[A-Za-z0-9_-]+", n) for n in names)
+        or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", source)):
     status("하네스 받기 꺼짐(harness.json의 set 또는 source가 이상함)")
 base = os.environ.get("HARNESS_SOURCE_URL") or "https://raw.githubusercontent.com/%s/main" % source
 
@@ -93,8 +98,8 @@ def fetch(url, limit=5_000_000):
 now = local_version()
 try:
     approved = json.loads(fetch(base + "/signed/approved.json"))
-    entry = approved["bundles"][set_name]
-    want_hash, file_name, new = entry["sha256"].lower(), entry["file"], approved["version"]
+    new = approved["version"]
+    entries = [approved["bundles"][n] for n in names]
 except KeyError:
     status("경고: 승인 목록에 세트 %s 가 없어요. 지금 판 %s 유지" % (set_name, now or "없음"))
 except Exception:
@@ -108,32 +113,37 @@ except Exception:
     pass
 if now == new and active_set == set_name:
     status("최신 판 %s" % now)
-if not re.fullmatch(r"dist/[A-Za-z0-9_.-]+\.tar", file_name):
-    status("경고: 승인 목록의 묶음 이름이 이상해요. 지금 판 %s 유지" % (now or "없음"))
-try:
-    blob = fetch(base + "/" + file_name)
-except Exception:
-    status("새 판 %s 받기 실패(네트워크). 지금 판 %s 유지" % (new, now or "없음"))
-if hashlib.sha256(blob).hexdigest() != want_hash:
-    status("경고: 받은 묶음이 승인 목록(해시)과 달라 받지 않았어요. 지금 판 %s 유지" % (now or "없음"))
+blobs = []
+for entry in entries:
+    file_name = str(entry.get("file", ""))
+    if not re.fullmatch(r"dist/[A-Za-z0-9_.-]+\.tar", file_name):
+        status("경고: 승인 목록의 묶음 이름이 이상해요. 지금 판 %s 유지" % (now or "없음"))
+    try:
+        blob = fetch(base + "/" + file_name)
+    except Exception:
+        status("새 판 %s 받기 실패(네트워크). 지금 판 %s 유지" % (new, now or "없음"))
+    if hashlib.sha256(blob).hexdigest() != str(entry.get("sha256", "")).lower():
+        status("경고: 받은 묶음이 승인 목록(해시)과 달라 받지 않았어요. 지금 판 %s 유지" % (now or "없음"))
+    blobs.append(blob)
 
 parent = os.path.dirname(root)
 os.makedirs(parent, exist_ok=True)
 tmp = tempfile.mkdtemp(prefix=".harness-new-", dir=parent)
 try:
-    path = os.path.join(tmp, "b.tar")
-    with open(path, "wb") as f:
-        f.write(blob)
     out = os.path.join(tmp, "x")
-    with tarfile.open(path) as t:
-        for m in t.getmembers():
-            n = m.name
-            if not (m.isfile() or m.isdir()) or n.startswith(("/", "\\")) or ".." in re.split(r"[/\\]", n):
-                raise ValueError("이상한 파일 " + n)
-        if hasattr(tarfile, "data_filter"):
-            t.extractall(out, filter="data")
-        else:
-            t.extractall(out)
+    for i, blob in enumerate(blobs):  # 세트가 둘이면 묶음 둘을 한 곳에 푼다(바닥판 파일은 같음)
+        path = os.path.join(tmp, "b%d.tar" % i)
+        with open(path, "wb") as f:
+            f.write(blob)
+        with tarfile.open(path) as t:
+            for m in t.getmembers():
+                n = m.name
+                if not (m.isfile() or m.isdir()) or n.startswith(("/", "\\")) or ".." in re.split(r"[/\\]", n):
+                    raise ValueError("이상한 파일 " + n)
+            if hasattr(tarfile, "data_filter"):
+                t.extractall(out, filter="data")
+            else:
+                t.extractall(out)
     with open(os.path.join(out, "VERSION"), encoding="utf-8") as f:
         if f.read().strip() != new:
             raise ValueError("판 번호가 다름")
@@ -149,8 +159,10 @@ try:
         if old:
             os.rename(old, root)  # 바꾸다 실패하면 옛 판을 되돌려 놓는다
         raise
-    agents = os.path.join(root, "sets", set_name, "agents")
-    if os.path.isdir(agents):
+    for n in names:
+        agents = os.path.join(root, "sets", n, "agents")
+        if not os.path.isdir(agents):
+            continue
         dest = os.path.join(project, ".claude", "agents")
         os.makedirs(dest, exist_ok=True)
         for name in os.listdir(agents):
@@ -186,6 +198,27 @@ case "$cmd" in
     cat "$STATE/sync-status.txt" 2>/dev/null
     exit 0
     ;;
+  upgrade)
+    if [ -n "${HARNESS_ROOT:-}" ]; then
+      echo "플러그인으로 쓰는 중이라 upgrade는 필요 없어요(플러그인 업데이트로 바뀜)."
+      exit 0
+    fi
+    [ -n "$PY" ] || { echo "파이썬(3.8 이상)을 찾지 못해 upgrade를 못 해요."; exit 1; }
+    do_sync
+    cat "$STATE/sync-status.txt" 2>/dev/null
+    case "$(cat "$STATE/sync-status.txt" 2>/dev/null)" in
+      *경고*|*꺼짐*|*"확인 못 함"*|*실패*) echo "새 판을 받지 못해 받기 장치와 settings는 그대로 둡니다."; exit 1 ;;
+    esac
+    new="$ROOT/bootstrap/harness-sync.sh"
+    self="$PROJECT/.claude/harness-sync.sh"
+    if [ -f "$new" ] && ! cmp -s "$new" "$self" 2>/dev/null; then
+      # 돌고 있는 자기 자신을 덮어쓰지 않게, 새 파일을 만든 뒤 이름만 바꾼다
+      cp "$new" "$self.new" && mv "$self.new" "$self" && echo "받기 장치(.claude/harness-sync.sh)를 새 판으로 바꿨어요."
+    fi
+    "$PY" "$ROOT/core/tools/merge_settings.py" "$PROJECT" || exit 1
+    echo "다 됐어요. 바뀐 settings는 다음 세션 시작부터 켜져요. 바뀐 파일은 커밋에 같이 넣어 주세요."
+    exit 0
+    ;;
   hook)
     INPUT="$(cat 2>/dev/null || true)"
     [ -n "${2:-}" ] || exit 0
@@ -194,7 +227,7 @@ case "$cmd" in
     exit $?
     ;;
   *)
-    echo "쓰는 법: harness-sync.sh start | sync | hook <이름> [모드]" >&2
+    echo "쓰는 법: harness-sync.sh start | sync | upgrade | hook <이름> [모드]" >&2
     exit 0
     ;;
 esac

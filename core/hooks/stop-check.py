@@ -38,13 +38,12 @@ def commands(md):
 
 
 def set_checks(cfg):
-    sd = hc.set_dir(cfg)
-    info = hc.load_set_info(cfg)
     out = []
-    for rel in info.get("checks", []):
-        path = os.path.join(sd, rel)
-        if os.path.isfile(path):
-            out.append(("세트 검사: %s" % os.path.basename(rel), [sys.executable, path]))
+    for sd, info in hc.set_infos(cfg):
+        for rel in info.get("checks", []):
+            path = os.path.join(sd, rel)
+            if os.path.isfile(path):
+                out.append(("세트 검사: %s" % os.path.basename(rel), [sys.executable, path]))
     return out
 
 
@@ -58,11 +57,14 @@ def fingerprint():
     head = git("rev-parse", "HEAD")
     if head is None:
         return None
-    parts = [head, git("status", "--porcelain"), git("diff", "HEAD")]
+    # 하네스가 스스로 쓰는 파일(장치 숫자 기록, 실수기록.md)이 바뀐 것만으로는 다시 검사하지 않는다
+    own = [hc.STATS_FILE.replace(os.sep, "/"), "실수기록.md"]
+    skip = [":(exclude)" + f for f in own]
+    parts = [head, git("status", "--porcelain", "--", ".", *skip), git("diff", "HEAD", "--", ".", *skip)]
     if any(p is None for p in parts):
         return None
     for name in sorted(git("ls-files", "--others", "--exclude-standard", "-z").split(b"\0")):
-        if not name or name.startswith(b".claude/harness-state/"):
+        if not name or name.startswith(b".claude/harness-state/") or name.decode("utf-8", "replace") in own:
             continue
         try:
             with open(os.path.join(hc.project_dir(), name.decode("utf-8", "replace")), "rb") as f:
@@ -148,17 +150,18 @@ def work_guard_warning(data):
         save_warning(data, text)
     except OSError:
         pass
+    hc.bump_stat("경고:업무지킴이")
     return "[업무 지킴이 경고] " + text
 
 
-def main():
+def check(data):
     deadline = time.time() + BUDGET
-    data = hc.read_input()
     warning = work_guard_warning(data)
     session = data.get("session_id") or "s"
     cfg = hc.load_config()
     failures = []
-    missing = progress_missing(data, cfg)
+    # 프로젝트에 옛 「진행상황 안 적음」 검사 장치가 있으면 harness.json "progress_check": false 로 끈다
+    missing = progress_missing(data, cfg) if cfg.get("progress_check", True) is not False else []
     if missing:
         failures.append("- 파일(%s)을 바꿨는데 %s를 갱신하지 않았어요. 한 일·결정·사용자 지시 원문·다음 할 일을 적어 주세요."
                         % (", ".join(os.path.basename(p) for p in missing[:3]),
@@ -183,10 +186,18 @@ def main():
                                   "사용자 확인이 필요해요.\n%s%s" % (used, "\n".join(failures), note)})
         return
     hc.add_block("stop-check", session)
+    hc.bump_stat("막음:끝점검")
     hc.record_mistake("완료조건실패" if not missing else "진행상황안적음", failures[0])
     hc.emit({"decision": "block", **({"systemMessage": warning} if warning else {}),
              "reason": "아직 끝낼 수 없어요(끝 점검 %d/%d번째 막음). 고친 뒤 끝내 주세요.\n%s%s"
                        % (used + 1, hc.MAX_BLOCKS_PER_TURN, "\n".join(failures), note)})
+
+
+def main():
+    try:
+        check(hc.read_input())
+    finally:
+        hc.flush_stats()
 
 
 if __name__ == "__main__":
