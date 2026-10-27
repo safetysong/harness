@@ -775,6 +775,14 @@ class Bundles(Base):
             matchers = [g.get("matcher", "") for g in hooks["PreToolUse"]]
             self.assertTrue(any("PowerShell" in m and "Bash" in m for m in matchers), rel)
 
+    def test_pre_guard_has_room_for_work_guard(self):
+        # 한국어 pre 훅은 프로젝트 work_guard.py 까지 같이 돌리므로 시간을 넉넉히(옛 설치는 20초)
+        for rel in ("core/settings.core.json", "core/plugin-hooks.json"):
+            with open(os.path.join(ROOT, rel), encoding="utf-8") as f:
+                hooks = json.load(f)["hooks"]["PreToolUse"]
+            pre = [h for g in hooks for h in g["hooks"] if "korean-guard pre" in h["command"]]
+            self.assertTrue(pre and all(h["timeout"] >= 20 for h in pre), rel)
+
     def test_claude_template_short(self):
         with open(os.path.join(ROOT, "core", "CLAUDE.template.md"), encoding="utf-8") as f:
             self.assertLess(len(f.read().splitlines()), 200)

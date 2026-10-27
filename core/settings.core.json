@@ -69,7 +69,7 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/harness-sync.sh\" hook korean-guard pre",
-            "timeout": 10,
+            "timeout": 30,
             "onFailure": "continue"
           }
         ]
