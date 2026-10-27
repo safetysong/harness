@@ -123,18 +123,24 @@ def ids_from_file(spec):
         return set()
     out = set()
     pat = re.compile(r"(?:^|[\s*`(])" + re.escape(label) + r"\s*[:：]\s*(.*)")
-    other_label = re.compile(r"^\s*[*`]*[^\s|:：`]{1,20}\s*[:：]")
+    ids = re.compile(r"session_[A-Za-z0-9]+")
+    # 다른 이름표 칸(「메인:」 등). 주소(https:)·시각(10:30)은 이름표가 아님
+    other_label = re.compile(r"^\s*[*`]*(?!https?:)[^\s|:：`\d][^\s|:：`]{0,19}\s*[:：](?!//)")
     for line in (read_text(os.path.join(project_dir(), name)) or "").splitlines():
-        inside = False
-        for cell in line.split("|"):
+        cells = line.split("|")
+        for i, cell in enumerate(cells):
             m = pat.search(cell)
-            if m:  # 이 이름표 칸부터
-                inside = True
-                out.update(re.findall(r"session_[A-Za-z0-9]+", m.group(1)))
-            elif inside and other_label.search(cell):
-                inside = False  # 다음 이름표 칸에서 멈춤
-            elif inside:
-                out.update(re.findall(r"session_[A-Za-z0-9]+", cell))  # 이름표 다음 칸(id 칸)
+            if not m:
+                continue
+            found = ids.findall(m.group(1))
+            if not found:  # 이름표 칸과 id 칸이 따로인 표: 뒤 칸 중 id가 있는 첫 칸만(비고 칸은 안 읽음)
+                for c in cells[i + 1:]:
+                    if other_label.search(c):
+                        break  # id 없이 다음 이름표 칸이 나오면 멈춤
+                    found = ids.findall(c)
+                    if found:
+                        break
+            out.update(found)
     return out
 
 
