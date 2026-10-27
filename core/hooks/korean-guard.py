@@ -164,7 +164,7 @@ def mode_post(data, path):
     return 0
 
 
-def mode_stop(data, es):
+def mode_stop(data, es, path=None):
     texts = turn_texts(es)
     if not texts:
         return 0
@@ -176,6 +176,11 @@ def mode_stop(data, es):
             last_tool = i
     final = "\n".join(t for i, t in texts if i > last_tool)
     what = problem(final) if final else None
+    if not what and path:
+        # post 는 오래 걸리는 도구 뒤에만 돈다. 그 사이(Read·Edit 등 뒤) 쓴 중간 글은 여기서 본다
+        unseen = [t for t in new_texts(path, data.get("session_id")) if is_english(t)]
+        if unseen:
+            what, final = "영어 글", unseen[-1]
     if not what:
         return 0
     sid = data.get("session_id") or "s"
@@ -201,7 +206,7 @@ def main():
         return mode_post(data, path)
     if mode == "stop":
         try:
-            return mode_stop(data, hc.transcript(path))
+            return mode_stop(data, hc.transcript(path), path)
         finally:
             mark_read(path, data.get("session_id"))
     return 0
