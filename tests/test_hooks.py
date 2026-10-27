@@ -161,6 +161,14 @@ class RepoGuard(Base):
         self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "ask")
         self.assertIn("저장소 지킴이", out["hookSpecificOutput"]["permissionDecisionReason"])
 
+    def test_unattended_env_overrides(self):
+        p = self.project({"unattended": True})
+        d = json.dumps({"tool_name": "x__add_repo", "tool_input": {"repo": "b"}})
+        for env, want in (("0", "ask"), ("1", "deny"), ("", "deny")):
+            r = subprocess.run([sys.executable, os.path.join(HOOKS, "repo-guard.py")], input=d, capture_output=True,
+                               text=True, env=p.env(HARNESS_UNATTENDED=env), cwd=p.dir)
+            self.assertEqual(json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"], want, env)
+
     def test_no_repo_config_only_add_repo(self):
         p = self.project({})
         _, out, _ = p.hook("repo-guard", {"tool_name": "mcp__github__get_file_contents",
@@ -693,17 +701,26 @@ class Sync(Base):
     def test_hash_mismatch_keeps_old(self):
         p = self.project({"set": "B-app"})
         self.sync(p, "sync")
+        p.write(".claude/harness/VERSION", "0.0.1\n")  # 지금 판이 옛 판이라 새로 받으려 함
         with open(os.path.join(self.src, "dist", "B-app.tar"), "ab") as f:
-            f.write(b"tampered")
+            f.write(b"tampered")  # 판 번호는 같은데 내용이 바뀜 = 바꿔치기
+        r = self.sync(p, "sync")
+        self.assertIn("승인 목록(해시)과 달라", r.stdout)
+        self.assertEqual(p.read(".claude/harness/VERSION").strip(), "0.0.1")
+
+    def test_stale_cache_is_not_tampering(self):
+        p = self.project({"set": "B-app"})
+        self.sync(p, "sync")
         ap = os.path.join(self.src, "signed", "approved.json")
         with open(ap, encoding="utf-8") as f:
             a = json.load(f)
-        a["version"] = "9.9.9"
+        a["version"] = "9.9.9"  # 목록은 새 판인데 묶음은 아직 옛 판(캐시)
+        a["bundles"]["B-app"]["sha256"] = "0" * 64
         with open(ap, "w", encoding="utf-8") as f:
             json.dump(a, f)
         r = self.sync(p, "sync")
-        self.assertIn("승인 목록(해시)과 달라", r.stdout)
-        self.assertEqual(p.read(".claude/harness/VERSION").strip(), self.version())
+        self.assertIn("막 올라와", r.stdout)
+        self.assertNotIn("경고", r.stdout)
 
     def test_network_failure_keeps_old(self):
         p = self.project({"set": "B-app"})
