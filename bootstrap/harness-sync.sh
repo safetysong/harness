@@ -144,6 +144,11 @@ try:
                 t.extractall(out, filter="data")
             else:
                 t.extractall(out)
+    # 묶음 안 파일 시각은 1970-01-01로 고정돼 있다. 그대로 두면 크기가 같은 파일(VERSION 등)이 바뀌어도
+    # git이 못 알아챌 수 있어서, 푼 파일 시각을 지금으로 맞춘다.
+    for d, _, files in os.walk(out):
+        for name in files:
+            os.utime(os.path.join(d, name), None)
     with open(os.path.join(out, "VERSION"), encoding="utf-8") as f:
         if f.read().strip() != new:
             raise ValueError("판 번호가 다름")

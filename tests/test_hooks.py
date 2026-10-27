@@ -683,6 +683,13 @@ class Sync(Base):
         self.assertEqual(p.read(".claude/harness-sync.sh"), "# 옛 받기 장치\n")
         self.assertFalse(os.path.exists(os.path.join(p.dir, ".claude/settings.json")))
 
+    def test_extracted_files_get_current_time(self):
+        p = self.project({"set": "B-app"})
+        self.sync(p, "sync")
+        import time as _t
+        for rel in ("VERSION", "core/hooks/stop-check.py"):
+            self.assertGreater(os.path.getmtime(os.path.join(p.dir, ".claude/harness", rel)), _t.time() - 600, rel)
+
     def test_hash_mismatch_keeps_old(self):
         p = self.project({"set": "B-app"})
         self.sync(p, "sync")
