@@ -118,12 +118,16 @@ def ids_from_file(spec):
     if not isinstance(spec, str) or ":" not in spec:
         return set()
     name, label = spec.split(":", 1)
-    if os.path.isabs(name) or ".." in re.split(r"[/\\]", name):
+    label = label.strip()
+    if not label or os.path.isabs(name) or ".." in re.split(r"[/\\]", name):
         return set()
     out = set()
+    pat = re.compile(r"(?:^|[\s|*`(])" + re.escape(label) + r"\s*[:：]\s*(.*)")
     for line in (read_text(os.path.join(project_dir(), name)) or "").splitlines():
-        if re.search(re.escape(label.strip()) + r"\s*[:：]", line):
-            out.update(re.findall(r"session_[A-Za-z0-9]+", line))
+        for cell in line.split("|"):  # 표 한 줄에 여러 칸이 있어도 그 이름표 칸의 id만
+            m = pat.search(cell)
+            if m:
+                out.update(re.findall(r"session_[A-Za-z0-9]+", m.group(1)))
     return out
 
 

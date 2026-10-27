@@ -594,6 +594,10 @@ class ReviewFixes032(Base):
             "cat > a.md <<'EOF'\ngit clone https://github.com/other/x\nEOF",
             "git clone http://127.0.0.1:44327/git/me/mine",
             "git -C /w remote set-url origin https://github.com/me/mine.git",
+            "git clone --depth 1 https://github.com/me/mine",
+            "git clone -b dev https://github.com/me/mine/tree/main",
+            "git remote add -t main origin https://github.com/me/mine",
+            "git commit -m \"첫 줄\ngit clone https://github.com/other/x\"",
         ]
         for c in quiet:
             _, out, _ = p.hook("repo-guard", {"tool_name": "Bash", "tool_input": {"command": c}})
@@ -604,15 +608,43 @@ class ReviewFixes032(Base):
             "/usr/bin/git remote add up https://github.com/other/x",
             "gh repo clone other/x",
             "git clone",
+            "sudo git clone https://github.com/other/x",
+            "env FOO=1 git clone https://github.com/other/x",
+            "bash -c \"git clone https://github.com/other/x\"",
+            "cat <<< foo\ngit clone https://github.com/other/x",
+            "echo \"<<EOF\"\ngit clone https://github.com/other/x",
+            "echo it's; git clone https://github.com/other/x",
+            "git clone https://gitlab.com/me/mine",
         ]
         for c in loud:
             _, out, _ = p.hook("repo-guard", {"tool_name": "Bash", "tool_input": {"command": c}})
             self.assertEqual(decision(out), "deny", c)
 
+    def test_windows_full_path_git(self):
+        p = self.project({"repo": "me/mine", "unattended": True})
+        _, out, _ = p.hook("repo-guard", {"tool_name": "PowerShell", "tool_input": {
+            "command": "C:\\Git\\bin\\git.exe clone https://github.com/other/x"}})
+        self.assertEqual(decision(out), "deny")
+
+    def test_one_line_table(self):
+        p = self.project({"unattended_from": "CLAUDE.md:실행"})
+        p.write("CLAUDE.md", "| 메인: session_MAIN | 실행: session_RUN |\n")
+        r = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, %r); import harness_common as hc; "
+                            "print(sorted(hc.ids_from_file('CLAUDE.md:실행')))" % HOOKS],
+                           capture_output=True, text=True, env=p.env(), cwd=p.dir)
+        self.assertEqual(r.stdout.strip(), "['session_RUN']")
+
+    def test_stop_sees_interim_english_post_missed(self):
+        p = self.project({})
+        p.set_transcript([user("고쳐 줘"), say("Let me read the file and then edit the configuration."),
+                          tool("Read", file_path="a"), say("다 고쳤어요.")])
+        self.assertEqual(p.hook("korean-guard", {"transcript_path": p.transcript, "session_id": "k10"}, "stop")[0], 2)
+
     def test_post_matcher_is_narrow(self):
-        with open(os.path.join(ROOT, "core/settings.core.json"), encoding="utf-8") as f:
-            post = json.load(f)["hooks"]["PostToolUse"]
-        self.assertNotIn("*", [g.get("matcher") for g in post])
+        for rel in ("core/settings.core.json", "core/plugin-hooks.json"):
+            with open(os.path.join(ROOT, rel), encoding="utf-8") as f:
+                post = json.load(f)["hooks"]["PostToolUse"]
+            self.assertNotIn("*", [g.get("matcher") for g in post], rel)
 
 
 class Stats(Base):

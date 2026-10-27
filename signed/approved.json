@@ -3,19 +3,19 @@
   "bundles": {
     "core": {
       "file": "dist/core.tar",
-      "sha256": "f60462ce5d406fc58862b7c4c0c0535026ec9b30a0ac59294e084fc2f6dcdff0"
+      "sha256": "8de01c5c8d75dc38434920390bc46aa23b72012604459d663d7b5960b02eca73"
     },
     "A-research": {
       "file": "dist/A-research.tar",
-      "sha256": "34ec08e263d63936dd2c0be2e90d872e19f713ad31299f0fa4c33ad3e02e26ec"
+      "sha256": "48979b547f76c5fba8a24b7f5a81ab84ebb79ff3658396d7d4826ebbb014ab8b"
     },
     "B-app": {
       "file": "dist/B-app.tar",
-      "sha256": "acb6e59fee064a9391580273a0da3493558cc9e10c71c23519c2b59d7752f027"
+      "sha256": "91648fd556860946e8beeb29e36dbb53249f5e61f93e80862439879d8d8963b8"
     },
     "C-submission": {
       "file": "dist/C-submission.tar",
-      "sha256": "b128340aaec2db2a1fcaa8c7c5985126a76ab97b7c687a8f298d11c416366753"
+      "sha256": "f7cc5db9b92d924b5d89586429044c0587843e8af418b77a631a8f803ef78fec"
     }
   }
 }

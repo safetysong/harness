@@ -39,42 +39,93 @@ def same(repo, owner, name):
     return [owner.lower(), name.lower()] == want
 
 
-def commands(cmd):
-    """셸 명령 글을 낱말 목록들로 나눈다. 따옴표 안 글과 heredoc 본문은 명령으로 보지 않는다."""
-    lines, out, skip_until = cmd.splitlines(), [], None
-    for line in lines:
-        if skip_until is not None:
-            if line.strip() == skip_until:
-                skip_until = None
-            continue
-        h = re.search(r"<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?", line)
-        if h:
-            skip_until = h.group(1)
-            line = line[:h.start()]
-        try:
-            lex = shlex.shlex(line, posix=True, punctuation_chars=";&|()")
-            lex.whitespace_split = True
-            toks = list(lex)
-        except ValueError:
-            toks = line.split()
-        cur = []
-        for t in toks:
-            if t and set(t) <= set(";&|()"):
-                if cur:
-                    out.append(cur)
-                cur = []
-            else:
-                cur.append(t)
-        if cur:
-            out.append(cur)
+WRAPPERS = {"sudo", "env", "command", "exec", "nohup", "time", "nice", "xargs", "builtin", "doas"}
+SHELLS = {"bash", "sh", "zsh", "dash", "pwsh", "powershell", "cmd"}
+# 값을 하나 받는 옵션(그 값은 저장소 주소가 아님)
+CLONE_OPTS = {"--depth", "-b", "--branch", "-o", "--origin", "-c", "--config", "--reference", "--reference-if-able",
+              "--separate-git-dir", "-u", "--upload-pack", "--filter", "-j", "--jobs", "--template",
+              "--shallow-since", "--shallow-exclude", "--server-option", "--bundle-uri"}
+REMOTE_OPTS = {"-t", "-m", "--track", "--master"}
+
+
+def _quote_states(text):
+    """글자마다 (따옴표 밖인가) 를 돌려준다. 작은따옴표·큰따옴표·역슬래시를 따른다."""
+    out, q, esc = [], None, False
+    for ch in text:
+        out.append(q is None)
+        if esc:
+            esc = False
+        elif ch == "\\" and q != "'":
+            esc = True
+        elif q is None and ch in "'\"":
+            q = ch
+        elif q is not None and ch == q:
+            q = None
+    return out
+
+
+def strip_heredocs(cmd):
+    """따옴표 밖의 <<WORD(<<< 는 아님) 뒤 본문 줄을 뺀다. 끝 줄이 없으면 빼지 않는다."""
+    lines = cmd.split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        line = lines[i]
+        outside = _quote_states(line)
+        m = None
+        for cand in re.finditer(r"(?<!<)<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?(?!<)", line):
+            if outside[cand.start()]:
+                m = cand
+                break
+        if m:
+            end = next((j for j in range(i + 1, len(lines)) if lines[j].strip() == m.group(1)), None)
+            if end is not None:
+                out.append(line[:m.start()])
+                i = end + 1
+                continue
+        out.append(line)
+        i += 1
+    return "\n".join(out)
+
+
+def commands(cmd, powershell=False):
+    """셸 명령 글을 명령 하나씩의 낱말 목록으로 나눈다. 따옴표 안 글과 heredoc 본문은 명령으로 보지 않는다."""
+    if powershell:
+        cmd = cmd.replace("\\", "/")  # PowerShell은 역슬래시가 경로 구분이지 탈출 글자가 아님
+    cmd = strip_heredocs(cmd)
+    outside = _quote_states(cmd)
+    cmd = "".join(";" if ch == "\n" and outside[i] else ch for i, ch in enumerate(cmd))
+    try:
+        lex = shlex.shlex(cmd, posix=True, punctuation_chars=";&|()")
+        lex.whitespace_split = True
+        toks = list(lex)
+    except ValueError:
+        toks = []
+        for part in re.split(r"[;&|()]+", cmd):
+            toks += part.split() + [";"]
+    out, cur = [], []
+    for t in toks:
+        if t and set(t) <= set(";&|()"):
+            if cur:
+                out.append(cur)
+            cur = []
+        else:
+            cur.append(t)
+    if cur:
+        out.append(cur)
     return out
 
 
 def repo_of(arg):
-    """주소나 owner/name 글에서 (owner, name). 깃허브가 아닌 주소(프록시 등)도 경로 끝 두 칸을 본다."""
-    a = re.sub(r"\.git/?$", "", arg.strip().rstrip("/"))
-    m = re.search(r"([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$", a.replace(":", "/"))
-    return (m.group(1), m.group(2)) if m else None
+    """깃허브 주소·클라우드 git 프록시 주소·owner/name 글에서 (owner, name). 다른 곳 주소면 None."""
+    a = arg.strip()
+    m = re.match(r"(?:https?://|ssh://)?(?:[^@/]+@)?github\.com[:/]+([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?(?:[/#?].*)?$", a)
+    if m:
+        return m.groups()
+    m = re.match(r"https?://(?:127\.0\.0\.1|localhost)(?::\d+)?/git/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$", a)
+    if m:
+        return m.groups()
+    m = re.fullmatch(r"([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?", a)
+    return m.groups() if m else None
 
 
 def base(word):
@@ -82,35 +133,61 @@ def base(word):
     return w[:-4] if w.endswith(".exe") else w
 
 
-def check_bash(cmd, repo):
-    """명령의 첫 낱말이 git/gh 일 때만 본다(echo·grep·커밋 메시지 안의 글은 무시)."""
-    for words in commands(cmd):
-        while words and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):
-            words = words[1:]  # 앞의 환경 변수 설정(FOO=1 git ...)
-        if not words:
-            continue
-        prog, args = base(words[0]), words[1:]
-        # git -C 폴더, -c 키=값 같은 앞 옵션 건너뛰기
-        while prog == "git" and args and args[0].startswith("-"):
-            args = args[2:] if args[0] in ("-C", "-c") else args[1:]
-        target, what = None, None
-        if prog == "git" and args[:1] == ["clone"]:
-            rest = [x for x in args[1:] if not x.startswith("-")]
-            target, what = (rest[0] if rest else None), "git clone"
-        elif prog == "git" and args[:1] == ["remote"] and len(args) > 1 and args[1] in ("add", "set-url"):
-            rest = [x for x in args[2:] if not x.startswith("-")]
-            target, what = (rest[1] if len(rest) > 1 else None), "git remote " + args[1]
-        elif prog == "gh" and args[:2] == ["repo", "clone"]:
-            target, what = (args[2] if len(args) > 2 else None), "gh repo clone"
-        else:
-            continue
-        found = repo_of(target) if target else None
-        if not found:
-            stop("저장소 지킴이: '%s' 명령이 어느 저장소를 가리키는지 알 수 없어요. 이 프로젝트는 %s 하나만 다룹니다."
-                 % (what, repo), "저장소-알수없음")
-        if not same(repo, *found):
-            stop("저장소 지킴이: %s/%s 는 이 프로젝트 저장소(%s)가 아니에요. 이 프로젝트는 저장소 하나만 다뤄요."
-                 % (found[0], found[1], repo), "다른저장소")
+def positional(args, opts):
+    """옵션과 그 값을 뺀 나머지 낱말."""
+    out, skip = [], False
+    for x in args:
+        if skip:
+            skip = False
+        elif x in opts:
+            skip = True
+        elif not x.startswith("-"):
+            out.append(x)
+    return out
+
+
+def check_words(words, repo, depth=0):
+    while words and (re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]) or base(words[0]) in WRAPPERS):
+        words = words[1:]  # FOO=1, sudo, env 같은 앞 낱말 건너뛰기
+        while words and words[0].startswith("-") and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):
+            words = words[1:]  # sudo -u 같은 앞 낱말의 옵션
+    if not words:
+        return
+    prog, args = base(words[0]), words[1:]
+    if prog in SHELLS and depth < 3:  # bash -c "...", pwsh -Command "..."
+        for i, x in enumerate(args):
+            if x.lower() in ("-c", "/c", "-command") and i + 1 < len(args):
+                check_bash(" ".join(args[i + 1:]), repo, depth + 1, powershell=prog in ("pwsh", "powershell"))
+        return
+    if prog == "eval" and depth < 3:
+        check_bash(" ".join(args), repo, depth + 1)
+        return
+    while prog == "git" and args and args[0].startswith("-"):
+        args = args[2:] if args[0] in ("-C", "-c", "--git-dir", "--work-tree") else args[1:]
+    if prog == "git" and args[:1] == ["clone"]:
+        rest = positional(args[1:], CLONE_OPTS)
+        target, what = (rest[0] if rest else None), "git clone"
+    elif prog == "git" and args[:1] == ["remote"] and len(args) > 1 and args[1] in ("add", "set-url"):
+        rest = positional(args[2:], REMOTE_OPTS)
+        target, what = (rest[1] if len(rest) > 1 else None), "git remote " + args[1]
+    elif prog == "gh" and args[:2] == ["repo", "clone"]:
+        target, what = (args[2] if len(args) > 2 else None), "gh repo clone"
+    else:
+        return
+    found = repo_of(target) if target else None
+    if not found:
+        stop("저장소 지킴이: '%s' 명령이 어느 저장소를 가리키는지 알 수 없어요. 이 프로젝트는 %s 하나만 다룹니다."
+             % (what, repo), "저장소-알수없음")
+    if not same(repo, *found):
+        stop("저장소 지킴이: %s/%s 는 이 프로젝트 저장소(%s)가 아니에요. 이 프로젝트는 저장소 하나만 다뤄요."
+             % (found[0], found[1], repo), "다른저장소")
+
+
+def check_bash(cmd, repo, depth=0, powershell=False):
+    """명령의 첫 낱말(앞의 sudo·env 등은 건너뜀)이 git/gh 일 때만 본다. bash -c·eval 안도 본다.
+    echo·grep·커밋 메시지·heredoc 안의 글은 명령이 아니므로 보지 않는다."""
+    for words in commands(cmd, powershell):
+        check_words(words, repo, depth)
 
 
 def main():
@@ -141,7 +218,7 @@ def main():
                     "다른저장소")
         return
     if tool in ("Bash", "PowerShell"):  # 윈도는 PowerShell 도구로 같은 명령을 쓸 수 있다
-        check_bash(str(ti.get("command", "")), repo)
+        check_bash(str(ti.get("command", "")), repo, powershell=(tool == "PowerShell"))
 
 
 if __name__ == "__main__":
