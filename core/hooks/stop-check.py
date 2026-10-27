@@ -184,12 +184,6 @@ def check(data):
     failures = []
     # 프로젝트에 옛 「진행상황 안 적음」 검사 장치가 있으면 harness.json "progress_check": false 로 끈다
     missing = progress_missing(data, cfg) if cfg.get("progress_check", True) is not False else []
-    if missing and hc.is_unattended(cfg):
-        # 아무도 없는 예약 실행은 진행상황 때문에 붙잡지 않고 알리기만 한다
-        warning = ((warning + "\n") if warning else "") + (
-            "[끝 점검] 파일(%s)을 바꿨는데 %s는 안 고쳤어요(무인 실행이라 막지 않음)."
-            % (", ".join(os.path.basename(p) for p in missing[:3]), os.path.basename(hc.progress_path(cfg))))
-        missing = []
     if missing:
         failures.append("- 파일(%s)을 바꿨는데 %s를 갱신하지 않았어요. 한 일·결정·사용자 지시 원문·다음 할 일을 적어 주세요."
                         % (", ".join(os.path.basename(p) for p in missing[:3]),
@@ -203,6 +197,13 @@ def check(data):
         if not failed and fp:
             hc.write_atomic(fp_file, fp)
         failures += failed
+    if failures and hc.is_unattended(cfg):
+        # 아무도 없는 예약 실행은 붙잡지 않는다. 검사를 맞추려고 결과물을 스스로 고치지 않게 알리기만 하고 남겨 둔다
+        hc.bump_stat("경고:끝점검(무인)")
+        hc.log_state("unattended-stop.log", "\n".join(failures))
+        warning = ((warning + "\n") if warning else "") + (
+            "[끝 점검] 무인 실행이라 막지 않고 알리기만 해요. 사람이 나중에 봐야 할 것:\n" + "\n".join(failures))
+        failures = []
     note = "\n" + warning if warning else ""
     if not failures:
         if warning:
