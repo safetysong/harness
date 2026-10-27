@@ -52,7 +52,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "*",
+        "matcher": "Bash|PowerShell|Agent|Task|WebFetch|WebSearch",
         "hooks": [
           {
             "type": "command",

@@ -101,10 +101,30 @@ def is_unattended(cfg=None):
         return True
     if env in ("0", "false", "no", "n", "off"):
         return False
-    val = (cfg if cfg is not None else load_config()).get("unattended")
-    if isinstance(val, list):
-        return bool(session_ids() & {str(x) for x in val})
-    return val is True
+    cfg = cfg if cfg is not None else load_config()
+    val = cfg.get("unattended")
+    if val is True:
+        return True
+    listed = {str(x) for x in val} if isinstance(val, list) else set()
+    listed |= ids_from_file(cfg.get("unattended_from"))
+    return bool(session_ids() & listed)
+
+
+def ids_from_file(spec):
+    """"CLAUDE.md:실행" 처럼 「파일:이름표」. 그 파일에서 「이름표:」가 든 줄의 session_... id들을 읽는다.
+
+    세션 id를 harness.json 과 CLAUDE.md 두 곳에 따로 적다가 어긋나지 않게, 한 곳(표)에서만 읽는 길.
+    """
+    if not isinstance(spec, str) or ":" not in spec:
+        return set()
+    name, label = spec.split(":", 1)
+    if os.path.isabs(name) or ".." in re.split(r"[/\\]", name):
+        return set()
+    out = set()
+    for line in (read_text(os.path.join(project_dir(), name)) or "").splitlines():
+        if re.search(re.escape(label.strip()) + r"\s*[:：]", line):
+            out.update(re.findall(r"session_[A-Za-z0-9]+", line))
+    return out
 
 
 def session_ids():
@@ -430,6 +450,15 @@ def reset_blocks(session):
                 os.remove(os.path.join(state_dir(), f))
             except OSError:
                 pass
+
+
+def log_state(name, text):
+    """git에 안 들어가는 state_dir 의 기록 파일에 날짜와 함께 덧붙인다."""
+    try:
+        with open(os.path.join(state_dir(), name), "a", encoding="utf-8") as f:
+            f.write("## %s\n%s\n" % (time.strftime("%Y-%m-%d %H:%M"), text))
+    except OSError:
+        pass
 
 
 def write_atomic(path, text):

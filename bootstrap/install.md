@@ -35,6 +35,8 @@ curl -fsSL https://raw.githubusercontent.com/safetysong/harness/main/bootstrap/h
 - 아무도 없이 도는 예약 실행 세션이면 `"unattended"` 를 넣습니다(허락 창 대신 막기, 진행상황 검사는 막지 않고 알리기만).
   같은 저장소에 사람이 쓰는 세션도 있으면 실행 세션 id만 적습니다: `"unattended": ["session_..."]`.
   클라우드 세션 주소의 id(`session_...`)나 Claude Code 세션 id 어느 쪽이든 맞으면 됩니다.
+  CLAUDE.md 표에 이미 실행 세션 id가 있으면 `"unattended_from": "CLAUDE.md:실행"` 처럼 적어 그 표의 「실행:」 줄에서 읽게 합니다
+  (id를 두 곳에 적다가 어긋나지 않게). 무인 세션에서는 끝 점검이 막지 않고 알리기만 합니다.
   저장소의 모든 세션이 무인이면 `"unattended": true`.
   같은 저장소에 사람이 쓰는 세션도 있으면, 그 세션 환경에 `HARNESS_UNATTENDED=0` 을 두면 허락 창이 다시 뜹니다
   (반대로 harness.json 에 없이 예약 실행 환경에만 `HARNESS_UNATTENDED=1` 을 둬도 됩니다).

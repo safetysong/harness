@@ -155,7 +155,7 @@ class RepoGuard(Base):
         _, out, _ = p.hook("repo-guard", {"tool_name": "PowerShell",
                                           "tool_input": {"command": "git clone https://github.com/me/mine.git"}})
         self.assertEqual(out, "")
-        for cmd in ("git.exe clone https://github.com/other/x", "Git Clone https://github.com/other/x",
+        for cmd in ("git.exe clone https://github.com/other/x", "Git clone https://github.com/other/x",
                     "gh.exe repo clone other/x"):
             _, out, _ = p.hook("repo-guard", {"tool_name": "PowerShell", "tool_input": {"command": cmd}})
             self.assertEqual(decision(out), "ask", cmd)
@@ -501,7 +501,7 @@ class Unattended(Base):
         q.set_transcript([user("돌려 줘"), tool("Write", file_path=os.path.join(q.dir, "소식.md"))])
         _, out, _ = q.hook("stop-check", {"session_id": "session_run", "transcript_path": q.transcript})
         self.assertNotIn("decision", out)  # 무인 실행은 막지 않고
-        self.assertIn("무인 실행이라 막지 않음", out["systemMessage"])  # 알리기만
+        self.assertIn("무인 실행이라 막지 않고", out["systemMessage"])  # 알리기만
         _, out, _ = q.hook("stop-check", {"session_id": "session_human", "transcript_path": q.transcript})
         self.assertEqual(out["decision"], "block")  # 목록에 없는 세션(사람)은 그대로
 
@@ -565,6 +565,54 @@ class ReviewFixes030(Base):
         p.write(".claude/harness-sync.sh", "# 옛 받기 장치\n")
         _, out, _ = p.hook("session-start", {"source": "startup"})
         self.assertIn("받기 장치(.claude/harness-sync.sh)가 옛 판", out)
+
+
+class ReviewFixes032(Base):
+    def test_unattended_never_blocks_stop(self):
+        p = self.project({"unattended": True, "set": "B-app"}, PROGRESS.format(cmd="exit 1"))
+        p.write("깨진.json", "{")
+        _, out, _ = p.hook("stop-check", {"session_id": "n1", "transcript_path": p.transcript})
+        self.assertNotIn("decision", out)
+        self.assertIn("무인 실행이라 막지 않고", out["systemMessage"])
+        self.assertIn("깨진.json", p.read(".claude/harness-state/unattended-stop.log"))
+
+    def test_unattended_from_claude_md(self):
+        p = self.project({"unattended_from": "CLAUDE.md:실행"})
+        p.write("CLAUDE.md", "## 세션 주소\n| 메인: session_MAIN |\n| 실행: session_RUN |\n")
+        d = json.dumps({"tool_name": "x__add_repo", "tool_input": {"repo": "b"}, "session_id": "u"})
+        for remote, want in (("cse_RUN", "deny"), ("cse_MAIN", "ask")):
+            r = subprocess.run([sys.executable, os.path.join(HOOKS, "repo-guard.py")], input=d, capture_output=True,
+                               text=True, env=p.env(CLAUDE_CODE_REMOTE_SESSION_ID=remote), cwd=p.dir)
+            self.assertEqual(json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"], want, remote)
+
+    def test_repo_guard_false_positives_gone(self):
+        p = self.project({"repo": "me/mine", "unattended": True})
+        quiet = [
+            'echo "git clone https://github.com/other/x"',
+            "grep -rn 'git remote add' .",
+            "git commit -m \"문서: git clone https://github.com/other/x 예시\"",
+            "cat > a.md <<'EOF'\ngit clone https://github.com/other/x\nEOF",
+            "git clone http://127.0.0.1:44327/git/me/mine",
+            "git -C /w remote set-url origin https://github.com/me/mine.git",
+        ]
+        for c in quiet:
+            _, out, _ = p.hook("repo-guard", {"tool_name": "Bash", "tool_input": {"command": c}})
+            self.assertEqual(out, "", c)
+        loud = [
+            "cd /w && git clone https://github.com/other/x",
+            "FOO=1 git clone --depth 1 git@github.com:other/x.git",
+            "/usr/bin/git remote add up https://github.com/other/x",
+            "gh repo clone other/x",
+            "git clone",
+        ]
+        for c in loud:
+            _, out, _ = p.hook("repo-guard", {"tool_name": "Bash", "tool_input": {"command": c}})
+            self.assertEqual(decision(out), "deny", c)
+
+    def test_post_matcher_is_narrow(self):
+        with open(os.path.join(ROOT, "core/settings.core.json"), encoding="utf-8") as f:
+            post = json.load(f)["hooks"]["PostToolUse"]
+        self.assertNotIn("*", [g.get("matcher") for g in post])
 
 
 class Stats(Base):
