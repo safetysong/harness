@@ -91,13 +91,20 @@ def set_infos(cfg):
 
 
 def is_unattended(cfg=None):
-    """아무도 없이 도는 세션인가. 환경 변수 HARNESS_UNATTENDED(1/0)가 harness.json 의 unattended 보다 앞선다."""
+    """아무도 없이 도는 세션인가.
+
+    환경 변수 HARNESS_UNATTENDED(1/0)가 먼저. 그다음 harness.json 의 unattended:
+    true(저장소 전체) 또는 세션 id 목록(["session_..."], 그 세션들만).
+    """
     env = os.environ.get("HARNESS_UNATTENDED", "").strip().lower()
     if env in ("1", "true", "yes", "y", "on"):
         return True
     if env in ("0", "false", "no", "n", "off"):
         return False
-    return (cfg if cfg is not None else load_config()).get("unattended") is True
+    val = (cfg if cfg is not None else load_config()).get("unattended")
+    if isinstance(val, list):
+        return str(_INPUT.get("session_id") or "") in [str(x) for x in val]
+    return val is True
 
 
 def is_read_only():
@@ -181,6 +188,8 @@ def deny(reason, rule):
 # ---- 실수 기록 -------------------------------------------------------------
 
 MISTAKE_FILE = "mistakes.json"
+MISTAKES_PENDING = "mistakes-pending.md"   # 실수기록.md 로 옮길 줄(state_dir 안)
+MISTAKES_LOG = "실수기록.md"                # git에 남는 실수 기록(report 가 씀)
 
 
 class _Lock:
@@ -254,12 +263,8 @@ def _record_mistake(kind, detail, tool_failure):
     if second:
         entry["logged"] = True
         if not tool_failure:
-            log = os.path.join(project_dir(), "실수기록.md")
-            new = not os.path.exists(log)
-            with open(log, "a", encoding="utf-8") as f:
-                if new:
-                    f.write("# 실수 기록\n\n같은 종류 실수가 2번 나면 하네스가 여기에 적습니다. "
-                            "적힌 것은 장치(훅·검사)로 바꿀 후보입니다.\n\n")
+            # git에 들어가는 실수기록.md 는 직접 고치지 않고 모아 둔다(report 가 옮김)
+            with open(os.path.join(state_dir(), MISTAKES_PENDING), "a", encoding="utf-8") as f:
                 f.write("- %s · %s · %s\n" % (time.strftime("%Y-%m-%d"), kind, detail[:200].replace("\n", " ")))
             bump_stat("실수기록")
     write_atomic(path, json.dumps(data, ensure_ascii=False, indent=1))
@@ -267,8 +272,8 @@ def _record_mistake(kind, detail, tool_failure):
 
 
 # ---- 장치 숫자 기록 -----------------------------------------------------------
-# 막은 횟수·경고·실수·도구 고장을 세션 안에서 모았다가(state_dir), 답이 끝날 때(stop-check)
-# git에 남는 .claude/harness-stats.jsonl 의 「오늘 줄」 하나에 더한다. 하루에 한 줄만 쓴다.
+# 막은 횟수·경고·실수·도구 고장을 git에 안 들어가는 state_dir 에 모은다. git에 남는
+# .claude/harness-stats.jsonl(하루 한 줄)로 옮기는 것은 report(PR 올릴 때)만 한다.
 
 STATS_PENDING = "stats-pending.json"
 STATS_FILE = os.path.join(".claude", "harness-stats.jsonl")
@@ -291,10 +296,43 @@ def bump_stat(name, n=1):
         pass
 
 
+def pending_summary():
+    """(모아 둔 숫자 날 수, 모아 둔 실수 줄 수)"""
+    try:
+        with open(os.path.join(state_dir(), STATS_PENDING), encoding="utf-8") as f:
+            days = len(json.load(f) or {})
+    except Exception:
+        days = 0
+    lines = len([x for x in (read_text(os.path.join(state_dir(), MISTAKES_PENDING)) or "").splitlines() if x.strip()])
+    return days, lines
+
+
+def flush_mistakes():
+    """모아 둔 실수 줄을 git에 남는 실수기록.md 에 옮긴다. 옮긴 줄 수를 돌려준다."""
+    with _Lock():
+        pending = os.path.join(state_dir(), MISTAKES_PENDING)
+        lines = [x for x in (read_text(pending) or "").splitlines() if x.strip()]
+        if not lines:
+            return 0
+        log = os.path.join(project_dir(), MISTAKES_LOG)
+        have = set((read_text(log) or "").splitlines())
+        new = not os.path.exists(log)
+        with open(log, "a", encoding="utf-8") as f:
+            if new:
+                f.write("# 실수 기록\n\n같은 종류 실수가 2번 나면 하네스가 모아 두었다가 여기에 옮깁니다. "
+                        "적힌 것은 장치(훅·검사)로 바꿀 후보입니다.\n\n")
+            for x in lines:
+                if x not in have:
+                    f.write(x + "\n")
+        os.remove(pending)
+        return len(lines)
+
+
 def flush_stats():
-    """모아 둔 숫자를 git에 남는 파일에 더한다. 읽기 전용 세션이면 그대로 둔다."""
+    """모아 둔 숫자를 git에 남는 파일에 더한다. 옮긴 날 수를 돌려준다(report 만 부름)."""
     if is_read_only():
-        return
+        return 0
+    days = 0
     try:
         with _Lock("stats"):
             pending_path = os.path.join(state_dir(), STATS_PENDING)
@@ -302,9 +340,10 @@ def flush_stats():
                 with open(pending_path, encoding="utf-8") as f:
                     pending = json.load(f)
             except Exception:
-                return
+                return 0
             if not pending:
-                return
+                return 0
+            days = len(pending) if isinstance(pending, dict) else 0
             path = os.path.join(project_dir(), STATS_FILE)
             rows = {}
             for line in (read_text(path) or "").splitlines():
@@ -328,7 +367,8 @@ def flush_stats():
             write_atomic(path, text)
             os.remove(pending_path)
     except Exception:
-        pass
+        return 0
+    return days
 
 
 def kind_of_error(tool_name, error):

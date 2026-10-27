@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # 하네스 받기 장치: 각 프로젝트의 .claude/harness-sync.sh 로 넣는 단 하나의 파일.
 #
-#   harness-sync.sh start           세션 시작 훅. 새 판을 받아 본 뒤(startup일 때만) 시작 안내를 보여 준다.
+#   harness-sync.sh start           세션 시작 훅. 새 판을 받아 본 뒤 시작 안내를 보여 준다.
+#                                   (처음 시작은 늘, 이어 하기·압축 뒤는 30분에 한 번만 판을 확인)
 #   harness-sync.sh sync            새 판 받기만 한다.
-#   harness-sync.sh upgrade         새 판을 받고, 이 받기 장치와 settings.json 자리까지 최신으로 맞춘다.
-#   harness-sync.sh hook <이름> [모드]  .claude/harness/core/hooks/<이름>.py 를 돌린다.
+#   harness-sync.sh upgrade         받은 판을 저장소(.claude/harness)에 싣고, 이 받기 장치와 settings.json 까지 맞춘다(PR용).
+#   harness-sync.sh report          쌓아 둔 장치 숫자와 실수 기록을 git에 남는 파일에 옮긴다(PR 올릴 때).
+#   harness-sync.sh hook <이름> [모드]  하네스 훅 <이름>.py 를 돌린다.
+#
+# 저장소에 커밋된 판은 .claude/harness, 세션 시작 때 받은 새 판은 .claude/harness-state/harness(git에 안 들어감).
+# 받은 판이 있으면 훅은 그것으로 돈다. 세션 시작은 git에 들어가는 파일을 고치지 않는다(git pull 이 깨지지 않게).
 #
 # 안전 규칙
 # - 받은 묶음의 sha256이 원본 main의 signed/approved.json 과 다르면 받지 않고 지금 판을 쓴다.
@@ -14,8 +19,16 @@
 set -u
 
 PROJECT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-ROOT="${HARNESS_ROOT:-$PROJECT/.claude/harness}"
 STATE="$PROJECT/.claude/harness-state"
+TRACKED="$PROJECT/.claude/harness"
+LIVE="$STATE/harness"
+
+resolve_root() {
+  if [ -n "${HARNESS_ROOT:-}" ]; then ROOT="$HARNESS_ROOT"
+  elif [ -f "$LIVE/VERSION" ]; then ROOT="$LIVE"
+  else ROOT="$TRACKED"; fi
+}
+resolve_root
 
 find_python() {
   for p in python3 python py; do  # py: 윈도 파이썬 실행기
@@ -50,10 +63,11 @@ do_sync() {
   [ -n "$PY" ] || { mkdir -p "$STATE"; echo "하네스 받기 꺼짐(파이썬 없음)" > "$STATE/sync-status.txt"; return 0; }
   [ -n "${HARNESS_ROOT:-}" ] && return 0   # 플러그인으로 쓸 때는 플러그인이 판을 관리
   mkdir -p "$STATE"
-  PROJECT="$PROJECT" ROOT="$ROOT" STATE="$STATE" "$PY" - <<'PYEOF' || true
+  PROJECT="$PROJECT" ROOT="$ROOT" TARGET="$LIVE" STATE="$STATE" "$PY" - <<'PYEOF' || true
 import hashlib, json, os, re, shutil, sys, tarfile, tempfile, time, urllib.request
 
-project, root, state = os.environ["PROJECT"], os.environ["ROOT"], os.environ["STATE"]
+# root: 지금 쓰는 판(받은 판이 있으면 그것, 없으면 커밋된 판). target: 새 판을 풀 곳(git에 안 들어감)
+project, root, state, target = os.environ["PROJECT"], os.environ["ROOT"], os.environ["STATE"], os.environ["TARGET"]
 status_file = os.path.join(state, "sync-status.txt")
 
 
@@ -135,7 +149,7 @@ for entry in entries:
                % (now or "없음"))
     blobs.append(blob)
 
-parent = os.path.dirname(root)
+parent = os.path.dirname(target)
 os.makedirs(parent, exist_ok=True)
 tmp = tempfile.mkdtemp(prefix=".harness-new-", dir=parent)
 try:
@@ -164,32 +178,21 @@ try:
     with open(os.path.join(out, "SET"), "w", encoding="utf-8") as f:
         f.write(set_name + "\n")
     old = None
-    if os.path.exists(root):
+    if os.path.exists(target):
         old = os.path.join(tmp, "old")
-        os.rename(root, old)
+        os.rename(target, old)
     try:
-        os.rename(out, root)
+        os.rename(out, target)
     except Exception:
         if old:
-            os.rename(old, root)  # 바꾸다 실패하면 옛 판을 되돌려 놓는다
+            os.rename(old, target)  # 바꾸다 실패하면 옛 판을 되돌려 놓는다
         raise
-    for n in names:
-        agents = os.path.join(root, "sets", n, "agents")
-        if not os.path.isdir(agents):
-            continue
-        dest = os.path.join(project, ".claude", "agents")
-        os.makedirs(dest, exist_ok=True)
-        for name in os.listdir(agents):
-            try:
-                shutil.copyfile(os.path.join(agents, name), os.path.join(dest, name))
-            except OSError:
-                pass  # 에이전트 복사 실패는 하네스를 멈추지 않는다
 except Exception as e:
     status("경고: 새 판 %s 풀기 실패(%s). 지금 판 %s 유지" % (new, e, now or "없음"))
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
-status("새 판 %s 받음(전 판 %s). 훅은 이번 시작부터, settings 바뀐 것은 다시 설치한 뒤 다음 시작부터 켜짐. "
-       "바뀐 .claude/harness 는 커밋에 같이 넣기" % (new, now or "없음"))
+status("새 판 %s 받음(전 판 %s). 훅은 이번 시작부터 이 판으로 돎. 저장소에 싣는 것은 upgrade(PR)로"
+       % (new, now or "없음"))
 PYEOF
 }
 
@@ -199,13 +202,21 @@ case "$cmd" in
     INPUT="$(cat 2>/dev/null || true)"
     case "$INPUT" in
       *'"source"'*'"startup"'*|'') do_sync ;;
+      *)  # 이어 하기·압축 뒤: 오래 켜 둔 예약 실행 세션도 새 판을 받게, 30분에 한 번만 확인
+        if [ -z "$(find "$STATE/sync-status.txt" -mmin -30 2>/dev/null)" ]; then do_sync; fi ;;
     esac
+    resolve_root
     if [ -z "$PY" ]; then
       echo "[장치 상태] 파이썬(3.8 이상)을 찾지 못해 하네스 장치가 모두 꺼져 있어요. 파이썬을 깔면 다음 시작부터 켜져요."
       exit 0
     fi
     run_hook session-start || true
     exit 0
+    ;;
+  report)
+    [ -n "$PY" ] || { echo "파이썬(3.8 이상)을 찾지 못해 report를 못 해요."; exit 1; }
+    "$PY" "$ROOT/core/tools/report.py" "$PROJECT"
+    exit $?
     ;;
   sync)
     do_sync
@@ -225,6 +236,10 @@ case "$cmd" in
       *"받음("*|*"최신 판"*) ;;
       *) echo "새 판을 받지 못해 받기 장치와 settings는 그대로 둡니다."; exit 1 ;;
     esac
+    resolve_root
+    # 받은 판(또는 지금 판)을 저장소 자리(.claude/harness)에 싣고 에이전트도 맞춘다
+    "$PY" "$ROOT/core/tools/promote.py" "$PROJECT" || exit 1
+    resolve_root
     new="$ROOT/bootstrap/harness-sync.sh"
     self="$PROJECT/.claude/harness-sync.sh"
     if [ -f "$new" ] && ! cmp -s "$new" "$self" 2>/dev/null; then
@@ -243,7 +258,7 @@ case "$cmd" in
     exit $?
     ;;
   *)
-    echo "쓰는 법: harness-sync.sh start | sync | upgrade | hook <이름> [모드]" >&2
+    echo "쓰는 법: harness-sync.sh start | sync | upgrade | report | hook <이름> [모드]" >&2
     exit 0
     ;;
 esac
