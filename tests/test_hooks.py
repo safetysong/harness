@@ -633,6 +633,14 @@ class ReviewFixes032(Base):
                             "print(sorted(hc.ids_from_file('CLAUDE.md:실행')))" % HOOKS],
                            capture_output=True, text=True, env=p.env(), cwd=p.dir)
         self.assertEqual(r.stdout.strip(), "['session_RUN']")
+        # 이름표 칸과 id 칸이 따로인 표(ai-digest 모양)
+        p.write("CLAUDE.md", "| 메인: ★ AI 비서 | `session_MAIN` | ai-digest |\n"
+                             "| 실행: ⚙️ 자동 실행 (안 여셔도 됨) | `session_RUN2` | ai-digest | 매일 9시 |\n"
+                             "| 메인: 다른 | `session_X` | 실행: 둘째 | `session_RUN3` |\n")
+        r = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, %r); import harness_common as hc; "
+                            "print(sorted(hc.ids_from_file('CLAUDE.md:실행')))" % HOOKS],
+                           capture_output=True, text=True, env=p.env(), cwd=p.dir)
+        self.assertEqual(r.stdout.strip(), "['session_RUN2', 'session_RUN3']")
 
     def test_stop_sees_interim_english_post_missed(self):
         p = self.project({})

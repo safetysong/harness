@@ -122,12 +122,19 @@ def ids_from_file(spec):
     if not label or os.path.isabs(name) or ".." in re.split(r"[/\\]", name):
         return set()
     out = set()
-    pat = re.compile(r"(?:^|[\s|*`(])" + re.escape(label) + r"\s*[:：]\s*(.*)")
+    pat = re.compile(r"(?:^|[\s*`(])" + re.escape(label) + r"\s*[:：]\s*(.*)")
+    other_label = re.compile(r"^\s*[*`]*[^\s|:：`]{1,20}\s*[:：]")
     for line in (read_text(os.path.join(project_dir(), name)) or "").splitlines():
-        for cell in line.split("|"):  # 표 한 줄에 여러 칸이 있어도 그 이름표 칸의 id만
+        inside = False
+        for cell in line.split("|"):
             m = pat.search(cell)
-            if m:
+            if m:  # 이 이름표 칸부터
+                inside = True
                 out.update(re.findall(r"session_[A-Za-z0-9]+", m.group(1)))
+            elif inside and other_label.search(cell):
+                inside = False  # 다음 이름표 칸에서 멈춤
+            elif inside:
+                out.update(re.findall(r"session_[A-Za-z0-9]+", cell))  # 이름표 다음 칸(id 칸)
     return out
 
 
