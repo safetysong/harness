@@ -53,6 +53,8 @@ class Project:
 
     def env(self, **extra):
         env = dict(os.environ, CLAUDE_PROJECT_DIR=self.dir)
+        for k in ("HARNESS_UNATTENDED", "HARNESS_READ_ONLY", "HARNESS_ROOT"):  # 시험이 돌리는 환경에 흔들리지 않게
+            env.pop(k, None)
         env.update(extra)
         return env
 
@@ -164,7 +166,7 @@ class RepoGuard(Base):
     def test_unattended_env_overrides(self):
         p = self.project({"unattended": True})
         d = json.dumps({"tool_name": "x__add_repo", "tool_input": {"repo": "b"}})
-        for env, want in (("0", "ask"), ("1", "deny"), ("", "deny")):
+        for env, want in (("0", "ask"), ("off", "ask"), ("1", "deny"), ("", "deny")):
             r = subprocess.run([sys.executable, os.path.join(HOOKS, "repo-guard.py")], input=d, capture_output=True,
                                text=True, env=p.env(HARNESS_UNATTENDED=env), cwd=p.dir)
             self.assertEqual(json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"], want, env)
@@ -708,7 +710,7 @@ class Sync(Base):
         self.assertIn("승인 목록(해시)과 달라", r.stdout)
         self.assertEqual(p.read(".claude/harness/VERSION").strip(), "0.0.1")
 
-    def test_stale_cache_is_not_tampering(self):
+    def test_stale_cache_still_warns(self):
         p = self.project({"set": "B-app"})
         self.sync(p, "sync")
         ap = os.path.join(self.src, "signed", "approved.json")
@@ -719,8 +721,8 @@ class Sync(Base):
         with open(ap, "w", encoding="utf-8") as f:
             json.dump(a, f)
         r = self.sync(p, "sync")
-        self.assertIn("막 올라와", r.stdout)
-        self.assertNotIn("경고", r.stdout)
+        self.assertIn("경고", r.stdout)  # 받지 않은 묶음은 믿지 않으므로 늘 경고
+        self.assertIn("몇 분 뒤 저절로 풀릴 수", r.stdout)
 
     def test_network_failure_keeps_old(self):
         p = self.project({"set": "B-app"})
