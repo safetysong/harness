@@ -100,12 +100,23 @@ def is_read_only():
         return True
     if load_config().get("read_only") is True:
         return True
-    for d in transcript(_INPUT.get("transcript_path") or ""):
-        if is_real_prompt(d):
-            c = (d.get("message") or {}).get("content")
-            text = c if isinstance(c, str) else " ".join(
-                str(b.get("text", "")) for b in c or [] if isinstance(b, dict))
-            return "읽기만" in text
+    path = _INPUT.get("transcript_path") or ""
+    try:
+        f = open(path, encoding="utf-8")
+    except Exception:
+        return False
+    with f:
+        for line in f:  # 첫 사용자 말까지만 읽는다(긴 기록 전체를 읽지 않게)
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(d, dict) and is_real_prompt(d):
+                c = (d.get("message") or {}).get("content")
+                text = c if isinstance(c, str) else " ".join(
+                    str(b.get("text", "")) for b in c or [] if isinstance(b, dict))
+                # 「읽기만 하지 말고」처럼 반대 뜻은 빼고
+                return bool(re.search(r"읽기만(?!\s*하지\s*말|\s*하지마|\s*가능)", text))
     return False
 
 
@@ -173,14 +184,33 @@ class _Lock:
 
     def __enter__(self):
         self.f = open(os.path.join(state_dir(), self.name + ".lock"), "w")
+        self.win = False
         try:
             import fcntl
             fcntl.flock(self.f, fcntl.LOCK_EX)
+        except ImportError:
+            try:  # 윈도
+                import msvcrt
+                for _ in range(100):
+                    try:
+                        msvcrt.locking(self.f.fileno(), msvcrt.LK_LOCK, 1)
+                        self.win = True
+                        break
+                    except OSError:
+                        time.sleep(0.05)
+            except Exception:
+                pass
         except Exception:
             pass
         return self
 
     def __exit__(self, *a):
+        if self.win:
+            try:
+                import msvcrt
+                msvcrt.locking(self.f.fileno(), msvcrt.LK_UNLCK, 1)
+            except Exception:
+                pass
         self.f.close()
 
 
@@ -209,9 +239,11 @@ def _record_mistake(kind, detail, tool_failure):
     entry["last"] = detail[:300]
     data[kind] = entry
     second = entry["count"] >= 2 and not entry["logged"]
+    if second and not tool_failure and is_read_only():
+        second = False  # 읽기 전용이면 적지 않고, 다음 보통 세션에서 적을 수 있게 남겨 둔다
     if second:
         entry["logged"] = True
-        if not tool_failure and not is_read_only():
+        if not tool_failure:
             log = os.path.join(project_dir(), "실수기록.md")
             new = not os.path.exists(log)
             with open(log, "a", encoding="utf-8") as f:
@@ -268,14 +300,17 @@ def flush_stats():
             for line in (read_text(path) or "").splitlines():
                 try:
                     r = json.loads(line)
-                    if isinstance(r, dict) and isinstance(r.get("date"), str):
-                        rows[r["date"]] = r.get("counts") or {}
+                    if isinstance(r, dict) and isinstance(r.get("date"), str) and isinstance(r.get("counts"), dict):
+                        rows[r["date"]] = {k: v for k, v in r["counts"].items() if isinstance(v, int)}
                 except ValueError:
                     pass
-            for date, counts in pending.items():
-                cur = rows.setdefault(date, {})
+            for date, counts in pending.items() if isinstance(pending, dict) else []:
+                if not isinstance(counts, dict):
+                    continue
+                cur = rows.setdefault(str(date), {})
                 for k, v in counts.items():
-                    cur[k] = int(cur.get(k, 0)) + int(v)
+                    if isinstance(v, int):
+                        cur[k] = int(cur.get(k, 0)) + v
             keep = sorted(rows)[-STATS_KEEP_DAYS:]
             text = "".join(json.dumps({"date": d, "counts": dict(sorted(rows[d].items()))}, ensure_ascii=False) + "\n"
                            for d in keep)

@@ -22,13 +22,23 @@ def is_harness(group):
 
 
 def scripts_in(command, project):
-    """훅 명령에서 프로젝트 안 스크립트 파일 경로를 뽑는다."""
-    cmd = command.replace("${CLAUDE_PROJECT_DIR}", project).replace("$CLAUDE_PROJECT_DIR", project)
+    """훅 명령에서 프로젝트 안 스크립트 파일 경로를 뽑는다.
+
+    "$CLAUDE_PROJECT_DIR"/.claude/hooks/x.py 처럼 따옴표가 섞이거나, 프로젝트 경로에 빈칸이 있어도 찾는다.
+    """
+    mark = "\0P"
+    cmd = command
+    for p in ("${CLAUDE_PROJECT_DIR}", "$CLAUDE_PROJECT_DIR", "$env:CLAUDE_PROJECT_DIR", project):
+        cmd = cmd.replace(p, mark)
+    cmd = cmd.replace('"', "").replace("'", "")
     out = []
-    for tok in re.findall(r"[\w./\\:~-]+\.(?:sh|py|js|ps1)", cmd):
-        path = tok if os.path.isabs(tok) else os.path.join(project, tok)
-        if os.path.isfile(path):
-            out.append(path)
+    for tok in re.findall(r"[\0\w./\\:~-]+\.(?:sh|py|js|ps1)", cmd):
+        rel = tok.replace(mark, "").lstrip("/\\") if tok.startswith(mark) else None
+        candidates = [os.path.join(project, rel)] if rel is not None else [tok, os.path.join(project, tok)]
+        for path in candidates:
+            if os.path.isfile(path):
+                out.append(path)
+                break
     return out
 
 
@@ -78,11 +88,15 @@ def main():
     if old:
         hp = os.path.join(project, ".claude", "harness.json")
         try:
-            with open(hp, encoding="utf-8") as f:
+            with open(hp, encoding="utf-8-sig") as f:
                 cfg = json.load(f)
         except Exception:
-            cfg = {}
-        if "progress_check" not in cfg:
+            cfg = None
+        if not isinstance(cfg, dict):
+            # 못 읽는 harness.json 을 덮어쓰면 set·repo 같은 설정이 사라지니 그대로 둔다
+            print("옛 진행상황 검사 장치(%s)가 있는데 harness.json 을 읽지 못했어요. "
+                  "harness.json 에 \"progress_check\": false 를 직접 넣어 주세요." % ", ".join(old))
+        elif "progress_check" not in cfg:
             cfg["progress_check"] = False
             with open(hp, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, ensure_ascii=False, indent=2)

@@ -50,6 +50,9 @@ def device_line(cfg, infos, files):
     long_ = [f for f in files if hc.front_lines(hc.read_text(f)) > 40]
     parts.append("앞 칸 40줄 넘는 진행상황 %d개" % len(long_))
     titles = [info.get("title") or os.path.basename(d) for d, info in infos]
+    found = {os.path.basename(d) for d, _ in infos}
+    missing = [n for n in hc.set_names(cfg) if n not in found]
+    titles += ["%s(없음: 받기 전이거나 이름이 틀림)" % n for n in missing]
     parts.append("세트 " + " + ".join(titles) if titles else "바닥판만(세트 없음)")
     if cfg.get("progress_check") is False:
         parts.append("진행상황 점검은 프로젝트 옛 장치가 맡음")
