@@ -93,11 +93,11 @@ def set_infos(cfg):
 def is_unattended(cfg=None):
     """아무도 없이 도는 세션인가. 환경 변수 HARNESS_UNATTENDED(1/0)가 harness.json 의 unattended 보다 앞선다."""
     env = os.environ.get("HARNESS_UNATTENDED", "").strip().lower()
-    if env in ("1", "true", "yes"):
+    if env in ("1", "true", "yes", "y", "on"):
         return True
-    if env in ("0", "false", "no"):
+    if env in ("0", "false", "no", "n", "off"):
         return False
-    return bool((cfg if cfg is not None else load_config()).get("unattended"))
+    return (cfg if cfg is not None else load_config()).get("unattended") is True
 
 
 def is_read_only():

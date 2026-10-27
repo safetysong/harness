@@ -92,16 +92,6 @@ def fresh(url, key):
     return url + "?v=" + key if url.startswith("http") else url
 
 
-def bundle_version(blob):
-    """묶음 안 VERSION. 못 읽으면 None."""
-    try:
-        import io
-        with tarfile.open(fileobj=io.BytesIO(blob)) as t:
-            return t.extractfile("VERSION").read().decode("utf-8").strip()
-    except Exception:
-        return None
-
-
 def fetch(url, limit=5_000_000):
     with urllib.request.urlopen(url, timeout=6) as r:
         data = r.read(limit + 1)
@@ -134,16 +124,15 @@ for entry in entries:
     if not re.fullmatch(r"dist/[A-Za-z0-9_.-]+\.tar", file_name):
         status("경고: 승인 목록의 묶음 이름이 이상해요. 지금 판 %s 유지" % (now or "없음"))
     try:
-        blob = fetch(fresh(base + "/" + file_name, str(new)))
+        want = str(entry.get("sha256", "")).lower()
+        blob = fetch(fresh(base + "/" + file_name, want[:16]))  # 내용마다 다른 주소라 옛 캐시를 안 받음
     except Exception:
         status("새 판 %s 받기 실패(네트워크). 지금 판 %s 유지" % (new, now or "없음"))
-    if hashlib.sha256(blob).hexdigest() != str(entry.get("sha256", "")).lower():
-        got = bundle_version(blob)
-        if got and got != str(new):
-            # 승인 목록과 묶음의 판 번호가 다르면 새 판이 막 올라와 아직 덜 퍼진 것(바꿔치기가 아님)
-            status("새 판이 막 올라와 아직 다 퍼지지 않았어요(목록 %s, 묶음 %s). 지금 판 %s 유지, 다음 시작 때 다시 받아요"
-                   % (new, got, now or "없음"))
-        status("경고: 받은 묶음이 승인 목록(해시)과 달라 받지 않았어요. 지금 판 %s 유지" % (now or "없음"))
+    if not re.fullmatch(r"[0-9a-f]{64}", want) or hashlib.sha256(blob).hexdigest() != want:
+        # 받지 않은 묶음 안의 내용은 믿지 않으므로, 까닭을 짐작하지 않고 늘 경고로 알린다
+        status("경고: 받은 묶음이 승인 목록(해시)과 달라 받지 않았어요. 지금 판 %s 유지. "
+               "새 판이 막 올라온 직후면 몇 분 뒤 저절로 풀릴 수 있어요. 10분 넘게 계속되면 사용자에게 알려 주세요"
+               % (now or "없음"))
     blobs.append(blob)
 
 parent = os.path.dirname(root)
