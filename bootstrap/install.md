@@ -32,7 +32,9 @@ curl -fsSL https://raw.githubusercontent.com/safetysong/harness/main/bootstrap/h
 }
 ```
 - `set`: 세트 하나(`"C-submission"`), 두 세트(`["A-research", "B-app"]`), 바닥판만(`"core"` 또는 비움).
-- 아무도 없이 도는 예약 실행 세션이면 `"unattended": true` 를 넣습니다(허락 창 대신 막기).
+- 아무도 없이 도는 예약 실행 세션이면 `"unattended"` 를 넣습니다(허락 창 대신 막기, 진행상황 검사는 막지 않고 알리기만).
+  같은 저장소에 사람이 쓰는 세션도 있으면 실행 세션 id만 적습니다: `"unattended": ["session_..."]`.
+  저장소의 모든 세션이 무인이면 `"unattended": true`.
   같은 저장소에 사람이 쓰는 세션도 있으면, 그 세션 환경에 `HARNESS_UNATTENDED=0` 을 두면 허락 창이 다시 뜹니다
   (반대로 harness.json 에 없이 예약 실행 환경에만 `HARNESS_UNATTENDED=1` 을 둬도 됩니다).
 - 읽기만 하는 저장소·세션이면 `"read_only": true`. 세션 첫 말에 「읽기만」이 있어도 읽기 전용으로 봅니다.
@@ -57,6 +59,8 @@ bash .claude/harness-sync.sh upgrade
   기존 내용은 지우지 않고, 예전 하네스 훅만 빼고 새로 넣어서 여러 번 해도 두 번 들어가지 않습니다.
 - 프로젝트의 다른 Stop 훅이 「진행상황」을 검사하면(옛 stop-check 등) `progress_check: false` 를 넣어
   같은 일로 두 번 막지 않게 합니다. 옛 장치 등록을 빼고 하네스에 맡기고 싶으면 사용자에게 먼저 여쭙니다.
+- 세션 시작 때 받은 새 판은 `.claude/harness-state/harness`(git에 안 들어감)에 풀려 그 세션의 훅이 씁니다.
+  저장소의 `.claude/harness` 는 upgrade 를 돌릴 때만 바뀝니다. [장치 상태]에 「upgrade PR 필요」가 보이면 이 한 줄로 PR을 만듭니다.
 - **판을 올릴 때도 이 한 줄이면 됩니다.** 이미 깐 프로젝트를 최신으로 맞출 때 1·3번 없이 이것만 합니다.
   (0.1.x로 깐 프로젝트는 받기 장치가 옛 판이라 처음 한 번은 `sync` 뒤에
   `bash .claude/harness/bootstrap/harness-sync.sh upgrade` 로 돌립니다.)
@@ -75,7 +79,9 @@ bash .claude/harness-sync.sh start < /dev/null    # [장치 상태] 줄이 나�
 ```
 커밋할 것: `.claude/harness-sync.sh`, `.claude/harness.json`, `.claude/harness/`, `.claude/agents/`,
 `.claude/settings.json`, `CLAUDE.md`, `진행상황.md`, `.gitignore`.
-쓰다 보면 `.claude/harness-stats.jsonl`(장치 숫자 기록, 하루 한 줄)도 생깁니다. 이것도 커밋에 같이 넣습니다.
+훅은 git에 들어가는 파일을 스스로 고치지 않습니다(예약 실행의 `git pull` 이 깨지지 않게).
+장치 숫자와 실수 기록은 `.claude/harness-state/` 에 모였다가, PR을 올릴 때 `bash .claude/harness-sync.sh report` 를 돌리면
+`.claude/harness-stats.jsonl`(하루 한 줄)과 `실수기록.md` 로 옮겨집니다. 그 두 파일도 PR에 같이 넣습니다.
 
 ## 7. 사용자에게 알리기
 - 훅 설정은 **다음 세션부터** 켜진다고 알립니다(설정은 세션이 시작할 때 읽음).

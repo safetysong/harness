@@ -97,9 +97,25 @@ def progress_missing(data, cfg):
     progress = os.path.basename(hc.progress_path(cfg))
     skip = (progress, "실수기록.md")
     others = [p for p in edited if os.path.basename(p) not in skip and "harness-state" not in p]
+    others = not_ignored(others)  # work/ 처럼 git이 무시하는 파일만 바꿨으면 진행상황을 안 적어도 됨
     if not others or any(os.path.basename(p) == progress for p in edited):
         return []
     return others
+
+
+def not_ignored(paths):
+    """git이 무시하는(.gitignore) 파일은 뺀다. git이 없으면 그대로."""
+    if not paths:
+        return paths
+    try:
+        p = subprocess.run(["git", "check-ignore", "--stdin", "-z"], cwd=hc.project_dir(), capture_output=True,
+                           input="\0".join(paths).encode("utf-8"), timeout=20)
+    except Exception:
+        return paths
+    if p.returncode not in (0, 1):
+        return paths
+    ignored = {x.decode("utf-8", "replace") for x in p.stdout.split(b"\0") if x}
+    return [x for x in paths if x not in ignored]
 
 
 def guard_said(p):
@@ -162,6 +178,12 @@ def check(data):
     failures = []
     # 프로젝트에 옛 「진행상황 안 적음」 검사 장치가 있으면 harness.json "progress_check": false 로 끈다
     missing = progress_missing(data, cfg) if cfg.get("progress_check", True) is not False else []
+    if missing and hc.is_unattended(cfg):
+        # 아무도 없는 예약 실행은 진행상황 때문에 붙잡지 않고 알리기만 한다
+        warning = ((warning + "\n") if warning else "") + (
+            "[끝 점검] 파일(%s)을 바꿨는데 %s는 안 고쳤어요(무인 실행이라 막지 않음)."
+            % (", ".join(os.path.basename(p) for p in missing[:3]), os.path.basename(hc.progress_path(cfg))))
+        missing = []
     if missing:
         failures.append("- 파일(%s)을 바꿨는데 %s를 갱신하지 않았어요. 한 일·결정·사용자 지시 원문·다음 할 일을 적어 주세요."
                         % (", ".join(os.path.basename(p) for p in missing[:3]),
@@ -194,10 +216,7 @@ def check(data):
 
 
 def main():
-    try:
-        check(hc.read_input())
-    finally:
-        hc.flush_stats()
+    check(hc.read_input())
 
 
 if __name__ == "__main__":

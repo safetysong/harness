@@ -65,6 +65,12 @@ def device_line(cfg, infos, files):
     n = work_guard_week()
     if n is not None:
         parts.append("업무 지킴이 경고 최근 7일 %d건" % n)
+    tracked = hc.read_text(os.path.join(hc.project_dir(), ".claude", "harness", "VERSION"))
+    if tracked and tracked.strip() != hc.harness_version():
+        parts.append("저장소에 실린 판 %s, 돌고 있는 판 %s(받은 판) → upgrade PR 필요" % (tracked.strip(), hc.harness_version()))
+    days, lines = hc.pending_summary()
+    if days or lines:
+        parts.append("기록 대기(숫자 %d일, 실수 %d줄) → PR 올릴 때 `bash .claude/harness-sync.sh report`" % (days, lines))
     sync = hc.read_text(os.path.join(hc.state_dir(), "sync-status.txt"))
     if sync:
         parts.append(sync.strip())

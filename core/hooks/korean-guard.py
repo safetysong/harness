@@ -3,12 +3,12 @@
 
 다짐이나 기억 저장으로는 안 고쳐져서 기계로 막는다. 훅 입력(JSON)을 stdin으로 받는다.
   pre  : 사용자에게 보이는 도구(질문·단추·파일 설명·세션 제목 등)의 글이 영어면 그 도구를 막음(exit 2)
-  post : 도구가 끝날 때마다, 그사이 쓴 중간 알림 글이 영어면 바로 알림(exit 2 → Claude가 한국어로 다시 씀)
+  post : 도구가 끝날 때마다, 그사이 새로 쓴 중간 알림 글이 영어면 바로 알림(exit 2 → Claude가 한국어로 다시 씀).
+         대화 기록은 지난번에 읽은 곳 뒤만 읽는다
   stop : 답을 마칠 때, 마지막 글이 영어거나 대시가 있으면 다시 쓰게 함(한 답에서 두 번까지)
 판단: 코드 묶음·`코드`·주소·파일 경로를 빼고, 한글이 하나도 없는데 영어 낱말이 4개 이상이거나,
 영어 낱말이 8개 이상이면서 한글 글자 수의 절반보다 많으면 「영어 글」.
 """
-import hashlib
 import json
 import os
 import re
@@ -89,8 +89,43 @@ def short(t):
     return t[:90] + ("…" if len(t) > 90 else "")
 
 
-def seen_path(sid):
-    return os.path.join(hc.state_dir(), "korean-seen-" + re.sub(r"[^\w\-]", "_", sid or "x"))
+def offset_path(sid):
+    return os.path.join(hc.state_dir(), "korean-offset-" + re.sub(r"[^\w\-]", "_", sid or "x"))
+
+
+def new_texts(path, sid):
+    """지난번에 읽은 곳 뒤로 새로 붙은 Claude 글만 읽는다(긴 대화에서 도구마다 기록 전체를 읽지 않게).
+
+    처음이거나 기록 파일이 짧아졌으면(새 파일) 이번 답 글만 본다.
+    """
+    op = offset_path(sid)
+    try:
+        start = int((hc.read_text(op) or "").strip() or -1)
+    except ValueError:
+        start = -1
+    size = os.path.getsize(path)
+    if start < 0 or start > size:
+        texts = [t for _, t in turn_texts(hc.transcript(path))]
+    else:
+        texts = []
+        with open(path, "rb") as f:
+            f.seek(start)
+            chunk = f.read()
+        # 끝에 아직 덜 쓰인 줄이 있으면 다음번에 읽는다
+        complete = chunk[:chunk.rfind(b"\n") + 1] if b"\n" in chunk else b""
+        size = start + len(complete)
+        for line in complete.decode("utf-8", "replace").splitlines():
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(d, dict) or d.get("type") != "assistant" or d.get("isSidechain"):
+                continue
+            for blk in (d.get("message") or {}).get("content") or []:
+                if isinstance(blk, dict) and blk.get("type") == "text" and blk.get("text", "").strip():
+                    texts.append(blk["text"])
+    hc.write_atomic(op, str(size))
+    return texts
 
 
 def mode_pre(data):
@@ -113,21 +148,8 @@ def mode_pre(data):
     return 0
 
 
-def mode_post(data, es):
-    texts = turn_texts(es)
-    sp = seen_path(data.get("session_id"))
-    order = (hc.read_text(sp) or "").split()
-    seen = set(order)
-    bad = []
-    for i, t in texts:
-        h = hashlib.md5(("%d:%s" % (i, t)).encode("utf-8")).hexdigest()[:12]
-        if h in seen:
-            continue
-        seen.add(h)
-        order.append(h)
-        if is_english(t):
-            bad.append(t)
-    hc.write_atomic(sp, " ".join(order[-400:]))
+def mode_post(data, path):
+    bad = [t for t in new_texts(path, data.get("session_id")) if is_english(t)]
     if bad:
         hc.bump_stat("막음:한국어지킴이")
         hc.record_mistake("한국어지킴이:영어 글", short(bad[-1]))
@@ -170,11 +192,10 @@ def main():
     path = data.get("transcript_path") or ""
     if not path or not os.path.isfile(path):
         return 0
-    es = hc.transcript(path)
     if mode == "post":
-        return mode_post(data, es)
+        return mode_post(data, path)
     if mode == "stop":
-        return mode_stop(data, es)
+        return mode_stop(data, hc.transcript(path))
     return 0
 
 

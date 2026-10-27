@@ -84,6 +84,20 @@ def main():
         f.write("\n")
     print("settings.json 합침: 하네스 훅 %d개 이벤트, 금지 목록 %d개" % (len(core["hooks"]), len(deny)))
 
+    # 받은 판·모아 둔 기록이 git에 들어가지 않게
+    gi = os.path.join(project, ".gitignore")
+    try:
+        with open(gi, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        lines = []
+    if not any(x.strip().rstrip("/") in (".claude/harness-state", "/.claude/harness-state") for x in lines):
+        with open(gi, "a", encoding="utf-8") as f:
+            if lines and lines[-1].strip():
+                f.write("\n")
+            f.write(".claude/harness-state/\n")
+        print(".gitignore 에 .claude/harness-state/ 를 더했어요.")
+
     old = old_progress_checkers(hooks, project)
     if old:
         hp = os.path.join(project, ".claude", "harness.json")

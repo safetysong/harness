@@ -12,6 +12,8 @@ import unittest
 import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PENDING = ".claude/harness-state/mistakes-pending.md"  # report 전 실수 기록이 모이는 곳
+LIVE = ".claude/harness-state/harness"  # 세션 시작 때 받은 판이 풀리는 곳(git에 안 들어감)
 HOOKS = os.path.join(ROOT, "core", "hooks")
 SYNC = os.path.join(ROOT, "bootstrap", "harness-sync.sh")
 
@@ -64,6 +66,11 @@ class Project:
                            cwd=self.dir, env=self.env())
         out = json.loads(p.stdout) if p.stdout.strip().startswith("{") else p.stdout
         return p.returncode, out, p.stderr
+
+    def report(self, **extra):
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "core", "tools", "report.py"), self.dir],
+                           capture_output=True, text=True, env=self.env(**extra), cwd=self.dir)
+        return r.stdout
 
     def cleanup(self):
         shutil.rmtree(self.dir, ignore_errors=True)
@@ -226,6 +233,16 @@ class KoreanGuard(Base):
         p = self.project({})
         p.set_transcript([user("요약해 줘"), say("오늘 한 일은 세 가지예요. `tests/run.sh` 를 돌렸어요.")])
         self.assertEqual(p.hook("korean-guard", {"transcript_path": p.transcript, "session_id": "k2"}, "stop")[0], 0)
+
+    def test_post_reads_only_new_part(self):
+        p = self.project({})
+        p.set_transcript([user("시작"), say("한국어로 쓴 첫 알림이에요."), tool("Bash", command="ls")])
+        data = {"transcript_path": p.transcript, "session_id": "k4"}
+        self.assertEqual(p.hook("korean-guard", data, "post")[0], 0)
+        with open(p.transcript, "a", encoding="utf-8") as f:
+            f.write(json.dumps(say("Now checking every single file in the repository again."), ensure_ascii=False) + "\n")
+        self.assertEqual(p.hook("korean-guard", data, "post")[0], 2)
+        self.assertEqual(p.hook("korean-guard", data, "post")[0], 0)  # 이미 읽은 곳은 다시 안 봄
 
     def test_post_warns_once(self):
         p = self.project({})
@@ -392,7 +409,7 @@ class MistakeLog(Base):
         _, out, _ = p.hook("mistake-log", data)
         self.assertIn("도구 고장", out["hookSpecificOutput"]["additionalContext"])
         # 도구 고장은 실수기록.md에 적지 않는다
-        self.assertFalse(os.path.exists(os.path.join(p.dir, "실수기록.md")))
+        self.assertFalse(os.path.exists(os.path.join(p.dir, PENDING)))
         pending = json.loads(p.read(".claude/harness-state/stats-pending.json"))
         self.assertEqual(list(pending.values())[0]["도구실패"], 2)
 
@@ -400,9 +417,9 @@ class MistakeLog(Base):
         p = self.project({"unattended": True})
         d = {"tool_name": "mcp__claude-code-remote__add_repo", "tool_input": {"owner": "a", "repo": "b"}}
         p.hook("repo-guard", d)
-        self.assertFalse(os.path.exists(os.path.join(p.dir, "실수기록.md")))
+        self.assertFalse(os.path.exists(os.path.join(p.dir, PENDING)))
         p.hook("repo-guard", d)
-        self.assertEqual(len([x for x in p.read("실수기록.md").splitlines() if x.startswith("- ")]), 1)
+        self.assertEqual(len([x for x in p.read(PENDING).splitlines() if x.startswith("- ")]), 1)
 
     def test_read_only_session_does_not_write(self):
         p = self.project({"unattended": True})
@@ -410,20 +427,22 @@ class MistakeLog(Base):
         d = {"tool_name": "x__add_repo", "tool_input": {"repo": "b"}, "transcript_path": p.transcript}
         p.hook("repo-guard", d)
         p.hook("repo-guard", d)
-        self.assertFalse(os.path.exists(os.path.join(p.dir, "실수기록.md")))
+        self.assertFalse(os.path.exists(os.path.join(p.dir, PENDING)))
         p.hook("stop-check", {"session_id": "r1", "transcript_path": p.transcript})
+        self.assertFalse(os.path.exists(os.path.join(p.dir, ".claude/harness-stats.jsonl")))
+        self.assertIn("읽기 전용", p.report(HARNESS_READ_ONLY="1"))
         self.assertFalse(os.path.exists(os.path.join(p.dir, ".claude/harness-stats.jsonl")))
         p2 = self.project({"unattended": True, "read_only": True})
         d2 = {"tool_name": "x__add_repo", "tool_input": {"repo": "b"}}
         p2.hook("repo-guard", d2)
         p2.hook("repo-guard", d2)
-        self.assertFalse(os.path.exists(os.path.join(p2.dir, "실수기록.md")))
+        self.assertFalse(os.path.exists(os.path.join(p2.dir, PENDING)))
 
     def test_different_failures_not_logged(self):
         p = self.project({})
         p.hook("mistake-log", {"tool_name": "Bash", "error": "첫 번째 오류"})
         p.hook("mistake-log", {"tool_name": "Bash", "error": "전혀 다른 오류"})
-        self.assertFalse(os.path.exists(os.path.join(p.dir, "실수기록.md")))
+        self.assertFalse(os.path.exists(os.path.join(p.dir, PENDING)))
 
 
 
@@ -434,17 +453,17 @@ class ReviewFixes(Base):
         d = {"tool_name": "x__add_repo", "tool_input": {"repo": "b"}, "transcript_path": p.transcript}
         p.hook("repo-guard", d)
         p.hook("repo-guard", d)
-        self.assertTrue(os.path.exists(os.path.join(p.dir, "실수기록.md")))
+        self.assertTrue(os.path.exists(os.path.join(p.dir, PENDING)))
         q = self.project({"unattended": True})
         q.set_transcript([user("읽기만 해")])
         d["transcript_path"] = q.transcript
         q.hook("repo-guard", d)
         q.hook("repo-guard", d)
-        self.assertFalse(os.path.exists(os.path.join(q.dir, "실수기록.md")))
+        self.assertFalse(os.path.exists(os.path.join(q.dir, PENDING)))
         # 같은 프로젝트의 다음 보통 세션에서는 적힌다
         q.set_transcript([user("고쳐 줘")])
         q.hook("repo-guard", d)
-        self.assertTrue(os.path.exists(os.path.join(q.dir, "실수기록.md")))
+        self.assertTrue(os.path.exists(os.path.join(q.dir, PENDING)))
 
     def test_edit_failures_are_mistakes(self):
         p = self.project({})
@@ -452,7 +471,7 @@ class ReviewFixes(Base):
         p.hook("mistake-log", data)
         _, out, _ = p.hook("mistake-log", data)
         self.assertIn("실수 기록", out["hookSpecificOutput"]["additionalContext"])
-        self.assertIn("String to replace", p.read("실수기록.md"))
+        self.assertIn("String to replace", p.read(PENDING))
 
     def test_missing_set_folder_named(self):
         p = self.project({"set": "B-ap"})
@@ -464,26 +483,59 @@ class ReviewFixes(Base):
         p.write(".claude/harness-stats.jsonl", '{"date": "2026-01-01", "counts": [1]}\nnot json\n')
         p.hook("repo-guard", {"tool_name": "x__add_repo", "tool_input": {"repo": "b"}})
         p.hook("stop-check", {"session_id": "b1"})
+        p.report()
         self.assertIn("막음:저장소지킴이", p.read(".claude/harness-stats.jsonl"))
 
 
+class Unattended(Base):
+    def test_ignored_files_and_unattended_warn_only(self):
+        p = self.project({}, PROGRESS.format(cmd="true"))
+        p.write(".gitignore", "work/\n")
+        p.set_transcript([user("돌려 줘"), tool("Write", file_path=os.path.join(p.dir, "work", "결과.md"))])
+        # git이 무시하는 파일만 바꿨으면 진행상황을 안 적어도 됨
+        self.assertEqual(p.hook("stop-check", {"session_id": "u1", "transcript_path": p.transcript})[1], "")
+        p.set_transcript([user("돌려 줘"), tool("Write", file_path=os.path.join(p.dir, "소식.md"))])
+        _, out, _ = p.hook("stop-check", {"session_id": "u2", "transcript_path": p.transcript})
+        self.assertEqual(out["decision"], "block")
+        q = self.project({"unattended": ["session_run"]}, PROGRESS.format(cmd="true"))
+        q.set_transcript([user("돌려 줘"), tool("Write", file_path=os.path.join(q.dir, "소식.md"))])
+        _, out, _ = q.hook("stop-check", {"session_id": "session_run", "transcript_path": q.transcript})
+        self.assertNotIn("decision", out)  # 무인 실행은 막지 않고
+        self.assertIn("무인 실행이라 막지 않음", out["systemMessage"])  # 알리기만
+        _, out, _ = q.hook("stop-check", {"session_id": "session_human", "transcript_path": q.transcript})
+        self.assertEqual(out["decision"], "block")  # 목록에 없는 세션(사람)은 그대로
+
+    def test_unattended_session_list_for_repo_guard(self):
+        p = self.project({"unattended": ["session_run"]})
+        d = {"tool_name": "x__add_repo", "tool_input": {"repo": "b"}}
+        self.assertEqual(decision(p.hook("repo-guard", dict(d, session_id="session_run"))[1]), "deny")
+        self.assertEqual(decision(p.hook("repo-guard", dict(d, session_id="session_me"))[1]), "ask")
+
+
 class Stats(Base):
-    def test_daily_line_and_fingerprint_ignores_it(self):
+    def test_hooks_never_touch_tracked_logs_and_report_moves_them(self):
         p = self.project({"unattended": True}, PROGRESS.format(cmd="echo 돌았음 >> ran.txt"))
         p.write(".gitignore", "ran.txt\n.claude/harness-state/\n")
+        p.git("add", "-A")
+        p.git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "준비")
         d = {"tool_name": "x__add_repo", "tool_input": {"repo": "b"}}
-        p.hook("repo-guard", d)
-        p.hook("stop-check", {"session_id": "t1", "transcript_path": p.transcript})
-        rows = [json.loads(x) for x in p.read(".claude/harness-stats.jsonl").splitlines()]
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["counts"]["막음:저장소지킴이"], 1)
-        p.hook("repo-guard", d)
-        p.hook("stop-check", {"session_id": "t1", "transcript_path": p.transcript})
+        for _ in range(2):
+            p.hook("repo-guard", d)
+            p.hook("stop-check", {"session_id": "t1", "transcript_path": p.transcript})
+        # 훅만 돌았을 때는 git 작업 트리가 깨끗하다(예약 실행의 git pull 이 안 깨짐)
+        st = subprocess.run(["git", "status", "--porcelain"], cwd=p.dir, capture_output=True, text=True).stdout
+        self.assertEqual(st, "")
+        _, out, _ = p.hook("session-start", {"source": "startup"})
+        self.assertIn("기록 대기(숫자 1일, 실수 1줄)", out)
+        self.assertIn("옮겼어요", p.report())
         rows = [json.loads(x) for x in p.read(".claude/harness-stats.jsonl").splitlines()]
         self.assertEqual(len(rows), 1)  # 하루 한 줄
         self.assertEqual(rows[0]["counts"]["막음:저장소지킴이"], 2)
         self.assertEqual(rows[0]["counts"]["실수기록"], 1)
+        self.assertEqual(len([x for x in p.read("실수기록.md").splitlines() if x.startswith("- ")]), 1)
+        self.assertIn("옮길 기록이 없어요", p.report())
         # 장치 기록이 바뀐 것만으로는 완료 조건을 다시 돌리지 않는다
+        p.hook("stop-check", {"session_id": "t1", "transcript_path": p.transcript})
         self.assertEqual(p.read("ran.txt").count("돌았음"), 1)
 
 
@@ -613,24 +665,48 @@ class Sync(Base):
         p = self.project({"set": "C-submission"})
         r = self.sync(p, "sync")
         self.assertIn("새 판 %s 받음" % self.version(), r.stdout)
-        self.assertTrue(os.path.isfile(os.path.join(p.dir, ".claude/harness/core/hooks/stop-check.py")))
-        self.assertTrue(os.path.isfile(os.path.join(p.dir, ".claude/agents/심사위원.md")))
-        self.assertFalse(os.path.exists(os.path.join(p.dir, ".claude/harness/sets/A-research")))
+        # 받은 판은 git에 안 들어가는 곳에 풀리고, 저장소 자리와 에이전트는 그대로
+        self.assertTrue(os.path.isfile(os.path.join(p.dir, LIVE, "core/hooks/stop-check.py")))
+        self.assertFalse(os.path.exists(os.path.join(p.dir, ".claude/harness")))
+        self.assertFalse(os.path.exists(os.path.join(p.dir, ".claude/agents")))
+        self.assertFalse(os.path.exists(os.path.join(p.dir, LIVE, "sets/A-research")))
         self.assertIn("최신 판", self.sync(p, "sync").stdout)
+        # upgrade 가 저장소 자리로 싣고 에이전트를 맞춘다
+        self.assertEqual(self.sync(p, "upgrade").returncode, 0)
+        self.assertTrue(os.path.isfile(os.path.join(p.dir, ".claude/harness/core/hooks/stop-check.py")))
+        self.assertFalse(os.path.exists(os.path.join(p.dir, LIVE)))
+        self.assertTrue(os.path.isfile(os.path.join(p.dir, ".claude/agents/심사위원.md")))
+        self.assertIn("최신 판", self.sync(p, "sync").stdout)
+
+    def test_resume_checks_but_throttled(self):
+        p = self.project({"set": "B-app"})
+        r = self.sync(p, "start", data=json.dumps({"source": "resume"}))
+        self.assertIn("받음", r.stdout)  # 처음이면 이어 하기에서도 받는다
+        shutil.rmtree(os.path.join(p.dir, LIVE))
+        r = self.sync(p, "start", data=json.dumps({"source": "resume"}))
+        self.assertFalse(os.path.exists(os.path.join(p.dir, LIVE)))  # 30분 안에는 다시 안 받음
+
+    def test_tracked_differs_from_live_shows_upgrade_needed(self):
+        p = self.project({"set": "B-app"}, PROGRESS.format(cmd="true"))
+        self.sync(p, "upgrade")
+        p.write(".claude/harness/VERSION", "0.0.1\n")
+        r = self.sync(p, "start", data=json.dumps({"source": "startup"}))
+        self.assertIn("upgrade PR 필요", r.stdout)
 
     def test_two_sets_and_core(self):
         p = self.project({"set": ["A-research", "C-submission"]})
         r = self.sync(p, "sync")
         self.assertIn("받음", r.stdout)
         for rel in ("sets/A-research/set.json", "sets/C-submission/set.json", "core/hooks/stop-check.py"):
-            self.assertTrue(os.path.isfile(os.path.join(p.dir, ".claude/harness", rel)), rel)
-        self.assertFalse(os.path.exists(os.path.join(p.dir, ".claude/harness/sets/B-app")))
+            self.assertTrue(os.path.isfile(os.path.join(p.dir, LIVE, rel)), rel)
+        self.assertFalse(os.path.exists(os.path.join(p.dir, LIVE, "sets/B-app")))
+        self.sync(p, "upgrade")
         self.assertTrue(os.path.isfile(os.path.join(p.dir, ".claude/agents/근거확인자.md")))
         self.assertTrue(os.path.isfile(os.path.join(p.dir, ".claude/agents/심사위원.md")))
         self.assertIn("최신 판", self.sync(p, "sync").stdout)
         p2 = self.project({"set": "core"})
         self.assertIn("받음", self.sync(p2, "sync").stdout)
-        self.assertFalse(os.path.exists(os.path.join(p2.dir, ".claude/harness/sets")))
+        self.assertFalse(os.path.exists(os.path.join(p2.dir, LIVE, "sets")))
 
     def test_upgrade(self):
         p = self.project({"set": "B-app"})
@@ -654,6 +730,7 @@ class Sync(Base):
         self.assertTrue(any("PowerShell" in g.get("matcher", "") for g in st["hooks"]["PreToolUse"]))
         self.assertIs(json.loads(p.read(".claude/harness.json"))["progress_check"], False)
         self.assertIn("옛 진행상황 검사 장치", r.stdout)
+        self.assertIn(".claude/harness-state/", p.read(".gitignore"))
         # 다시 해도 같은 결과
         self.sync(p, "upgrade")
         self.assertEqual(json.loads(p.read(".claude/settings.json")), st)
@@ -671,7 +748,7 @@ class Sync(Base):
         q.write(".claude/settings.json", json.dumps({"hooks": {"Stop": [{"hooks": [mine]}]}}))
         self.sync(q, "sync")
         q.write(".claude/harness.json", '{"set": "B-app", "repo": "a/b",}')
-        r = subprocess.run([sys.executable, os.path.join(q.dir, ".claude/harness/core/tools/merge_settings.py"), q.dir],
+        r = subprocess.run([sys.executable, os.path.join(q.dir, LIVE, "core/tools/merge_settings.py"), q.dir],
                            capture_output=True, text=True)
         self.assertIn("읽지 못했어요", r.stdout)
         self.assertEqual(q.read(".claude/harness.json"), '{"set": "B-app", "repo": "a/b",}')
@@ -698,17 +775,17 @@ class Sync(Base):
         self.sync(p, "sync")
         import time as _t
         for rel in ("VERSION", "core/hooks/stop-check.py"):
-            self.assertGreater(os.path.getmtime(os.path.join(p.dir, ".claude/harness", rel)), _t.time() - 600, rel)
+            self.assertGreater(os.path.getmtime(os.path.join(p.dir, LIVE, rel)), _t.time() - 600, rel)
 
     def test_hash_mismatch_keeps_old(self):
         p = self.project({"set": "B-app"})
         self.sync(p, "sync")
-        p.write(".claude/harness/VERSION", "0.0.1\n")  # 지금 판이 옛 판이라 새로 받으려 함
+        p.write(LIVE + "/VERSION", "0.0.1\n")  # 지금 판이 옛 판이라 새로 받으려 함
         with open(os.path.join(self.src, "dist", "B-app.tar"), "ab") as f:
             f.write(b"tampered")  # 판 번호는 같은데 내용이 바뀜 = 바꿔치기
         r = self.sync(p, "sync")
         self.assertIn("승인 목록(해시)과 달라", r.stdout)
-        self.assertEqual(p.read(".claude/harness/VERSION").strip(), "0.0.1")
+        self.assertEqual(p.read(LIVE + "/VERSION").strip(), "0.0.1")
 
     def test_stale_cache_still_warns(self):
         p = self.project({"set": "B-app"})
@@ -730,7 +807,7 @@ class Sync(Base):
         shutil.rmtree(os.path.join(self.src, "signed"))
         r = self.sync(p, "sync")
         self.assertIn("네트워크", r.stdout)
-        self.assertTrue(os.path.isfile(os.path.join(p.dir, ".claude/harness/VERSION")))
+        self.assertTrue(os.path.isfile(os.path.join(p.dir, LIVE, "VERSION")))
 
     def test_start_shows_status(self):
         p = self.project({"set": "A-research"}, PROGRESS.format(cmd="true"))
