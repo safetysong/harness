@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""실수 기록(PostToolUseFailure): 같은 종류 실패가 2번이면 실수기록.md에 적고 Claude에게 알린다.
+"""도구 고장 세기(PostToolUseFailure).
 
-지킴이가 막은 일과 완료 조건 실패는 각 훅이 직접 기록한다.
+시간 초과, 인터넷 끊김, 명령 실패 같은 도구 고장은 Claude의 실수와 섞이지 않게 실수기록.md에
+적지 않고 「도구실패」로 따로 센다. 같은 종류가 2번이면 Claude에게만 알린다.
+지킴이가 막은 일과 완료 조건 실패(Claude의 실수)는 각 훅이 직접 실수기록.md에 적는다.
 """
 import os
 import sys
@@ -22,11 +24,12 @@ def main():
     if not err:
         return
     kind = hc.kind_of_error(tool, err)
-    if hc.record_mistake(kind, err):
+    hc.bump_stat("도구실패")
+    if hc.record_mistake("도구:" + kind, err, tool_failure=True):
         hc.emit({"hookSpecificOutput": {
             "hookEventName": data.get("hook_event_name") or "PostToolUseFailure",
-            "additionalContext": "[실수 기록] 같은 종류 실패가 2번 났어요(%s). 실수기록.md에 적었어요. "
-                                 "또 나지 않게 막는 장치(훅·검사·진행상황 '꼭 기억')를 사용자에게 제안해 주세요." % kind,
+            "additionalContext": "[도구 고장] 같은 종류 실패가 2번 났어요(%s). 같은 방법을 되풀이하지 말고 "
+                                 "다른 방법을 찾거나, 계속되면 사용자에게 알려 주세요." % kind,
         }})
 
 

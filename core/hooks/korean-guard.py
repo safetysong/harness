@@ -105,6 +105,7 @@ def mode_pre(data):
     if not bad and is_english(joined):
         bad = [(joined, "영어 글")]
     if bad:
+        hc.bump_stat("막음:한국어지킴이")
         hc.record_mistake("한국어지킴이:" + bad[0][1], short(bad[0][0]))
         sys.stderr.write(MSG + "이 도구(%s)의 글에 %s가 있어요. 고쳐서 다시 보내세요. 문제 글: 「%s」\n"
                          % (tool, bad[0][1], short(bad[0][0])))
@@ -128,6 +129,7 @@ def mode_post(data, es):
             bad.append(t)
     hc.write_atomic(sp, " ".join(order[-400:]))
     if bad:
+        hc.bump_stat("막음:한국어지킴이")
         hc.record_mistake("한국어지킴이:영어 글", short(bad[-1]))
         sys.stderr.write(MSG + "방금 중간 알림을 영어로 썼어요: 「%s」 → 다음 글부터 한국어로, "
                                "필요하면 한 줄로 한국어로 다시 알리세요.\n" % short(bad[-1]))
@@ -153,6 +155,7 @@ def mode_stop(data, es):
     if hc.blocks_used("korean-guard", sid) >= hc.MAX_BLOCKS_PER_TURN:
         return 0
     hc.add_block("korean-guard", sid)
+    hc.bump_stat("막음:한국어지킴이")
     hc.record_mistake("한국어지킴이:" + what, short(final))
     sys.stderr.write(MSG + "마지막 글에 %s가 있어요: 「%s」 → 같은 내용을 쉬운 한국어로, 대시 없이 다시 써서 "
                            "사용자에게 보내세요.\n" % (what, short(final)))

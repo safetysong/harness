@@ -42,14 +42,19 @@ def work_guard_week():
     return n
 
 
-def device_line(cfg, info, files):
+def device_line(cfg, infos, files):
     parts = ["판 %s" % hc.harness_version()]
     claude_md = hc.read_text(os.path.join(hc.project_dir(), "CLAUDE.md"))
     if claude_md is not None:
         parts.append("지침 %d자" % len(claude_md))
     long_ = [f for f in files if hc.front_lines(hc.read_text(f)) > 40]
     parts.append("앞 칸 40줄 넘는 진행상황 %d개" % len(long_))
-    parts.append("세트 %s" % (info.get("title") or cfg.get("set") or "없음"))
+    titles = [info.get("title") or os.path.basename(d) for d, info in infos]
+    parts.append("세트 " + " + ".join(titles) if titles else "바닥판만(세트 없음)")
+    if cfg.get("progress_check") is False:
+        parts.append("진행상황 점검은 프로젝트 옛 장치가 맡음")
+    if hc.is_read_only():
+        parts.append("읽기 전용(실수기록·장치 기록 안 고침)")
     guards = ["한국어", "완료 조건", "실수 기록"]
     if cfg.get("repo"):
         guards.insert(0, "저장소(%s)" % cfg["repo"])
@@ -63,7 +68,7 @@ def device_line(cfg, info, files):
     return "[장치 상태] " + " · ".join(parts)
 
 
-def deadline_line(info, cfg):
+def deadline_line(cfg):
     sub = cfg.get("submission") or {}
     dl = sub.get("deadline")
     if not dl:
@@ -81,7 +86,7 @@ def deadline_line(info, cfg):
 def main():
     data = hc.read_input()
     cfg = hc.load_config()
-    info = hc.load_set_info(cfg)
+    infos = hc.set_infos(cfg)
     out = []
     files = progress_files(cfg)
     md = hc.read_text(hc.progress_path(cfg))
@@ -95,14 +100,15 @@ def main():
             body = hc.section(md, title)
             if body:
                 out.append("## %s\n%s" % (title, body))
-    dl = deadline_line(info, cfg)
+    dl = deadline_line(cfg)
     if dl:
         out.append(dl)
-    sd = hc.set_dir(cfg)
-    guide = hc.read_text(os.path.join(sd, "guide.md")) if sd else None
-    if guide and data.get("source", "startup") == "startup":
-        out.append(guide.strip())
-    out.append(device_line(cfg, info, files))
+    if data.get("source", "startup") == "startup":
+        for sd, _ in infos:
+            guide = hc.read_text(os.path.join(sd, "guide.md"))
+            if guide:
+                out.append(guide.strip())
+    out.append(device_line(cfg, infos, files))
     sys.stdout.write("\n\n".join(out) + "\n")
 
 

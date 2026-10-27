@@ -28,6 +28,7 @@ MODE = "ask"
 def stop(reason, rule):
     if MODE == "deny":
         hc.deny(reason, rule)
+    hc.bump_stat("물음:저장소지킴이")
     hc.emit({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask",
                                     "permissionDecisionReason": reason}})
     sys.exit(0)

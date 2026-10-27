@@ -31,10 +31,14 @@ curl -fsSL https://raw.githubusercontent.com/safetysong/harness/main/bootstrap/h
   "progress_file": "진행상황.md"
 }
 ```
+- `set`: 세트 하나(`"C-submission"`), 두 세트(`["A-research", "B-app"]`), 바닥판만(`"core"` 또는 비움).
 - 아무도 없이 도는 예약 실행 세션이면 `"unattended": true` 를 넣습니다(허락 창 대신 막기).
+- 읽기만 하는 저장소·세션이면 `"read_only": true`. 세션 첫 말에 「읽기만」이 있어도 읽기 전용으로 봅니다.
+  읽기 전용이면 실수기록.md와 장치 숫자 기록을 고치지 않습니다.
 - 세트 C면 `submission` 칸을 요강에 맞춰 채웁니다:
   `{"file": "제출/초안.md", "required_sections": [...], "min_chars": 0, "max_chars": 0, "deadline": "YYYY-MM-DD", "format": ".hwpx", "final_file": "제출/최종.hwpx"}`
 - 세트 A에서 검사할 원고를 정하려면 `"research": {"files": ["원고/*.md"]}`.
+- `progress_check`는 보통 적지 않습니다. 4번이 옛 진행상황 검사 장치를 찾으면 알아서 `false` 를 넣습니다.
 
 ## 3. 하네스 받기
 ```bash
@@ -42,30 +46,17 @@ bash .claude/harness-sync.sh sync
 ```
 「새 판 0.x.x 받음」이 나와야 합니다. 「경고」나 「네트워크」가 나오면 멈추고 사용자에게 그대로 알립니다.
 
-## 4. settings.json 합치기
-`.claude/harness/core/settings.core.json` 을 프로젝트 `.claude/settings.json` 에 합칩니다.
-기존 내용은 지우지 않고, 금지 목록은 합집합으로 합니다. 훅은 예전 하네스 훅(harness-sync.sh 를 부르는 것)만 빼고
-새 판 훅을 이벤트마다 뒤에 붙입니다. 그래서 판을 올린 뒤 이 단계를 다시 해도 훅이 두 번 들어가지 않습니다.
-윈도에서는 아래 `python3` 를 `python` 또는 `py` 로 바꿔 돌립니다.
+## 4. 받기 장치와 settings.json 맞추기
 ```bash
-python3 - <<'PY'
-import json, os
-core = json.load(open(".claude/harness/core/settings.core.json", encoding="utf-8"))
-path = ".claude/settings.json"
-cur = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {}
-cur.setdefault("language", core["language"])
-deny = cur.setdefault("permissions", {}).setdefault("deny", [])
-deny += [d for d in core["permissions"]["deny"] if d not in deny]
-hooks = cur.setdefault("hooks", {})
-def is_harness(g):
-    return any("harness-sync.sh" in h.get("command", "") for h in g.get("hooks", []))
-for event in list(hooks):
-    hooks[event] = [g for g in hooks[event] if not is_harness(g)]
-for event, groups in core["hooks"].items():
-    hooks[event] = hooks.get(event, []) + groups
-json.dump(cur, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-PY
+bash .claude/harness-sync.sh upgrade
 ```
+- 받기 장치를 승인된 새 판으로 바꾸고, 하네스 훅·금지 목록을 `.claude/settings.json` 에 합칩니다.
+  기존 내용은 지우지 않고, 예전 하네스 훅만 빼고 새로 넣어서 여러 번 해도 두 번 들어가지 않습니다.
+- 프로젝트의 다른 Stop 훅이 「진행상황」을 검사하면(옛 stop-check 등) `progress_check: false` 를 넣어
+  같은 일로 두 번 막지 않게 합니다. 옛 장치 등록을 빼고 하네스에 맡기고 싶으면 사용자에게 먼저 여쭙니다.
+- **판을 올릴 때도 이 한 줄이면 됩니다.** 이미 깐 프로젝트를 최신으로 맞출 때 1·3번 없이 이것만 합니다.
+  (0.1.x로 깐 프로젝트는 받기 장치가 옛 판이라 처음 한 번은 `sync` 뒤에
+  `bash .claude/harness/bootstrap/harness-sync.sh upgrade` 로 돌립니다.)
 
 ## 5. 틀 채우기
 - `CLAUDE.md`: 없으면 `.claude/harness/core/CLAUDE.template.md` 를 복사해 `{{ }}` 칸을 채웁니다.
@@ -81,7 +72,9 @@ bash .claude/harness-sync.sh start < /dev/null    # [장치 상태] 줄이 나�
 ```
 커밋할 것: `.claude/harness-sync.sh`, `.claude/harness.json`, `.claude/harness/`, `.claude/agents/`,
 `.claude/settings.json`, `CLAUDE.md`, `진행상황.md`, `.gitignore`.
+쓰다 보면 `.claude/harness-stats.jsonl`(장치 숫자 기록, 하루 한 줄)도 생깁니다. 이것도 커밋에 같이 넣습니다.
 
 ## 7. 사용자에게 알리기
 - 훅 설정은 **다음 세션부터** 켜진다고 알립니다(설정은 세션이 시작할 때 읽음).
 - 무엇이 켜졌는지 한 줄씩: 한국어 지킴이, 저장소 지킴이, 끝 점검(완료 조건), 실수 기록, 세트 검사기, 검토 에이전트.
+- 4번이 옛 진행상황 검사 장치를 찾았으면 그 이름과 「하네스 진행상황 점검을 껐다」는 것도 알립니다.

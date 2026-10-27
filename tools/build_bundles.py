@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""세트마다 묶음(dist/<세트>.tar)을 만들고 승인 목록(signed/approved.json)을 쓴다.
+"""세트마다 묶음(dist/<세트>.tar)과 바닥판만 든 묶음(dist/core.tar)을 만들고 승인 목록(signed/approved.json)을 쓴다.
 
   python3 tools/build_bundles.py          묶음과 승인 목록을 새로 씀(판을 올릴 때, PR에 같이 넣음)
   python3 tools/build_bundles.py --check  지금 원본으로 만든 묶음이 dist/·승인 목록과 같은지 확인(Actions)
@@ -19,8 +19,10 @@ SKIP_PARTS = {"__pycache__", ".DS_Store"}
 
 
 def files_for(set_name):
-    out = ["VERSION"]
-    for top in ("core", os.path.join("sets", set_name)):
+    """묶음에 넣을 파일. set_name이 None이면 바닥판만(core 묶음)."""
+    out = ["VERSION", "bootstrap/harness-sync.sh"]  # 받기 장치도 넣어 upgrade가 승인된 판으로 바꾸게
+    tops = ["core"] + ([os.path.join("sets", set_name)] if set_name else [])
+    for top in tops:
         for d, dirs, files in os.walk(os.path.join(ROOT, top)):
             dirs[:] = [x for x in dirs if x not in SKIP_PARTS]
             for f in files:
@@ -57,8 +59,8 @@ def main():
         version = f.read().strip()
     approved = {"version": version, "bundles": {}}
     blobs = {}
-    for s in sets():
-        blob = build(s)
+    for s in ["core"] + sets():
+        blob = build(None if s == "core" else s)
         blobs[s] = blob
         approved["bundles"][s] = {"file": "dist/%s.tar" % s, "sha256": hashlib.sha256(blob).hexdigest()}
     text = json.dumps(approved, ensure_ascii=False, indent=2) + "\n"
