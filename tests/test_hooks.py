@@ -641,6 +641,16 @@ class ReviewFixes032(Base):
                             "print(sorted(hc.ids_from_file('CLAUDE.md:실행')))" % HOOKS],
                            capture_output=True, text=True, env=p.env(), cwd=p.dir)
         self.assertEqual(r.stdout.strip(), "['session_RUN2', 'session_RUN3']")
+        p.write("CLAUDE.md", "| 실행: | https://claude.ai/code/session_LINK | 비고 | session_NOTE 참고 |\n")
+        r = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, %r); import harness_common as hc; "
+                            "print(sorted(hc.ids_from_file('CLAUDE.md:실행')))" % HOOKS],
+                           capture_output=True, text=True, env=p.env(), cwd=p.dir)
+        self.assertEqual(r.stdout.strip(), "['session_LINK']")
+        p.write("CLAUDE.md", "| 실행: 이름만 | | 메인: 비서 | session_MAIN |\n")
+        r = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, %r); import harness_common as hc; "
+                            "print(sorted(hc.ids_from_file('CLAUDE.md:실행')))" % HOOKS],
+                           capture_output=True, text=True, env=p.env(), cwd=p.dir)
+        self.assertEqual(r.stdout.strip(), "[]")
 
     def test_stop_sees_interim_english_post_missed(self):
         p = self.project({})
