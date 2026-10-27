@@ -717,6 +717,15 @@ class SessionStart(Base):
         _, out, _ = p2.hook("session-start", {"source": "startup"})
         self.assertIn("바닥판만(세트 없음)", out)
 
+    def test_numbered_and_other_section_names(self):
+        p = self.project({}, "# 진행상황\n\n## 1. 지금 하는 일\n하네스 깔기\n\n## 2. 다음 할 일\n1. PR\n\n"
+                             "## 3) 완료 조건\n- [ ] 시험 · 확인: `exit 1`\n")
+        _, out, _ = p.hook("session-start", {"source": "startup"})
+        self.assertIn("## 지금 상태\n하네스 깔기", out)
+        self.assertIn("## 다음 할 일\n1. PR", out)
+        _, out, _ = p.hook("stop-check", {"session_id": "sec"})
+        self.assertEqual(out["decision"], "block")  # 번호 붙은 완료 조건 칸도 읽음
+
     def test_missing_progress(self):
         p = self.project({})
         _, out, _ = p.hook("session-start", {"source": "startup"})

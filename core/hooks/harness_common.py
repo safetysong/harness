@@ -198,17 +198,27 @@ def read_text(path):
         return None
 
 
+# 진행상황 칸 이름. 프로젝트마다 조금씩 달라서(「1. 지금 하는 일」 등) 같은 뜻의 이름을 함께 본다.
+SECTION_NAMES = {
+    "지금 상태": ("지금 상태", "지금 하는 일", "현재 상태", "지금 하는 중"),
+    "완료 조건": ("완료 조건", "끝 조건", "완료 기준"),
+    "다음 할 일": ("다음 할 일", "바로 할 일", "남은 과제", "할 일"),
+    "꼭 기억": ("꼭 기억", "꼭 기억할 것", "기억할 것"),
+}
+
+
 def section(md, title):
-    """'## 제목' 아래부터 다음 '## ' 전까지의 글."""
+    """'## 제목' 아래부터 다음 '## ' 전까지의 글. 앞 번호(「1. 」「2) 」)는 무시하고 같은 뜻 이름도 받는다."""
     if not md:
         return ""
-    lines = md.splitlines()
+    names = SECTION_NAMES.get(title, (title,))
     out, inside = [], False
-    for line in lines:
+    for line in md.splitlines():
         if line.startswith("## "):
             if inside:
                 break
-            inside = line[3:].strip().startswith(title)
+            head = re.sub(r"^\s*\d+\s*[.)]\s*", "", line[3:]).strip()
+            inside = head.startswith(names)
             continue
         if inside:
             out.append(line)
