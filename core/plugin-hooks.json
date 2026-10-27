@@ -33,7 +33,7 @@
           {
             "type": "command",
             "command": "HARNESS_ROOT=\"${CLAUDE_PLUGIN_ROOT}\" bash \"${CLAUDE_PLUGIN_ROOT}/bootstrap/harness-sync.sh\" hook korean-guard pre",
-            "timeout": 10,
+            "timeout": 30,
             "onFailure": "continue"
           }
         ]
