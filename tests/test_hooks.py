@@ -551,6 +551,15 @@ class ReviewFixes030(Base):
                            text=True, env=e, cwd=p.dir)
         self.assertIn("판 9.0.0", r.stdout)  # 더 새것인 저장소 판으로 돎
 
+    def test_hooks_leave_no_pycache(self):
+        p = self.project({"set": "B-app"}, PROGRESS.format(cmd="true"))
+        e = p.env(HARNESS_SOURCE_URL="file://" + ROOT)
+        e.pop("PYTHONDONTWRITEBYTECODE", None)
+        subprocess.run(["bash", SYNC, "upgrade"], capture_output=True, text=True, env=e, cwd=p.dir)
+        subprocess.run(["bash", SYNC, "hook", "repo-guard"], input="{}", capture_output=True, text=True, env=e, cwd=p.dir)
+        found = [d for d, _, _ in os.walk(os.path.join(p.dir, ".claude")) if d.endswith("__pycache__")]
+        self.assertEqual(found, [])
+
     def test_old_sync_script_noticed(self):
         p = self.project({}, PROGRESS.format(cmd="true"))
         p.write(".claude/harness-sync.sh", "# 옛 받기 장치\n")
