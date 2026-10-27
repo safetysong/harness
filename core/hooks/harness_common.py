@@ -103,8 +103,20 @@ def is_unattended(cfg=None):
         return False
     val = (cfg if cfg is not None else load_config()).get("unattended")
     if isinstance(val, list):
-        return str(_INPUT.get("session_id") or "") in [str(x) for x in val]
+        return bool(session_ids() & {str(x) for x in val})
     return val is True
+
+
+def session_ids():
+    """이 세션을 가리키는 id들. 훅 입력의 session_id 와, 클라우드 세션 주소의 id(cse_X 와 같은 session_X)."""
+    ids = {str(_INPUT.get("session_id") or ""), os.environ.get("CLAUDE_CODE_SESSION_ID", "")}
+    remote = os.environ.get("CLAUDE_CODE_REMOTE_SESSION_ID", "")
+    if remote:
+        ids.add(remote)
+        if remote.startswith("cse_"):
+            ids.add("session_" + remote[4:])
+    ids.discard("")
+    return ids
 
 
 def is_read_only():
@@ -317,6 +329,7 @@ def flush_mistakes():
         log = os.path.join(project_dir(), MISTAKES_LOG)
         have = set((read_text(log) or "").splitlines())
         new = not os.path.exists(log)
+        written = 0
         with open(log, "a", encoding="utf-8") as f:
             if new:
                 f.write("# 실수 기록\n\n같은 종류 실수가 2번 나면 하네스가 모아 두었다가 여기에 옮깁니다. "
@@ -324,8 +337,10 @@ def flush_mistakes():
             for x in lines:
                 if x not in have:
                     f.write(x + "\n")
+                    have.add(x)
+                    written += 1
         os.remove(pending)
-        return len(lines)
+        return written
 
 
 def flush_stats():

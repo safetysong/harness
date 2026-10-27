@@ -24,9 +24,17 @@ TRACKED="$PROJECT/.claude/harness"
 LIVE="$STATE/harness"
 
 resolve_root() {
-  if [ -n "${HARNESS_ROOT:-}" ]; then ROOT="$HARNESS_ROOT"
-  elif [ -f "$LIVE/VERSION" ]; then ROOT="$LIVE"
-  else ROOT="$TRACKED"; fi
+  # 받은 판이 저장소에 실린 판보다 새것일 때만 받은 판으로 돈다(git pull 로 저장소 판이 더 새것이 되면 그것)
+  if [ -n "${HARNESS_ROOT:-}" ]; then ROOT="$HARNESS_ROOT"; return; fi
+  ROOT="$TRACKED"
+  [ -f "$LIVE/VERSION" ] || return
+  [ -f "$TRACKED/VERSION" ] || { ROOT="$LIVE"; return; }
+  local live tracked newest
+  live="$(tr -d ' \r\n' < "$LIVE/VERSION")"
+  tracked="$(tr -d ' \r\n' < "$TRACKED/VERSION")"
+  [ "$live" = "$tracked" ] && return
+  newest="$(printf '%s\n%s\n' "$live" "$tracked" | sort -V | tail -n 1)"
+  [ "$newest" = "$live" ] && ROOT="$LIVE"
 }
 resolve_root
 

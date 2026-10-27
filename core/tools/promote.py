@@ -25,7 +25,7 @@ def main():
         tmp = tempfile.mkdtemp(prefix=".harness-promote-", dir=parent)
         try:
             staged = os.path.join(tmp, "new")
-            shutil.copytree(SOURCE, staged)
+            shutil.copytree(SOURCE, staged, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
             old = None
             if os.path.exists(tracked):
                 old = os.path.join(tmp, "old")

@@ -96,36 +96,41 @@ def offset_path(sid):
 def new_texts(path, sid):
     """지난번에 읽은 곳 뒤로 새로 붙은 Claude 글만 읽는다(긴 대화에서 도구마다 기록 전체를 읽지 않게).
 
-    처음이거나 기록 파일이 짧아졌으면(새 파일) 이번 답 글만 본다.
+    처음이거나 기록 파일이 짧아졌으면(새 파일) 처음부터 읽되, 어느 경우든 이번 답(마지막 사용자 말 뒤) 글만 본다.
     """
     op = offset_path(sid)
     try:
         start = int((hc.read_text(op) or "").strip() or -1)
     except ValueError:
         start = -1
-    size = os.path.getsize(path)
-    if start < 0 or start > size:
-        texts = [t for _, t in turn_texts(hc.transcript(path))]
-    else:
-        texts = []
-        with open(path, "rb") as f:
+    with open(path, "rb") as f:
+        if 0 <= start <= os.path.getsize(path):
             f.seek(start)
-            chunk = f.read()
-        # 끝에 아직 덜 쓰인 줄이 있으면 다음번에 읽는다
-        complete = chunk[:chunk.rfind(b"\n") + 1] if b"\n" in chunk else b""
-        size = start + len(complete)
-        for line in complete.decode("utf-8", "replace").splitlines():
-            try:
-                d = json.loads(line)
-            except ValueError:
-                continue
-            if not isinstance(d, dict) or d.get("type") != "assistant" or d.get("isSidechain"):
-                continue
-            for blk in (d.get("message") or {}).get("content") or []:
-                if isinstance(blk, dict) and blk.get("type") == "text" and blk.get("text", "").strip():
-                    texts.append(blk["text"])
-    hc.write_atomic(op, str(size))
-    return texts
+        else:
+            start = 0
+        chunk = f.read()
+    # 끝에 아직 덜 쓰인 줄이 있으면 다음번에 읽는다. 읽은 바이트로만 위치를 정해 두 번 읽지 않는다.
+    complete = chunk[:chunk.rfind(b"\n") + 1] if b"\n" in chunk else b""
+    hc.write_atomic(op, str(start + len(complete)))
+    es = []
+    for line in complete.decode("utf-8", "replace").splitlines():
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(d, dict):
+            es.append(d)
+    return [t for _, t in turn_texts(es)]
+
+
+def mark_read(path, sid):
+    """답이 끝날 때 기록 끝을 읽은 곳으로 둔다(지난 답 글을 다음 답 도구 때 다시 보지 않게)."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        hc.write_atomic(offset_path(sid), str(data.rfind(b"\n") + 1))
+    except OSError:
+        pass
 
 
 def mode_pre(data):
@@ -195,7 +200,10 @@ def main():
     if mode == "post":
         return mode_post(data, path)
     if mode == "stop":
-        return mode_stop(data, hc.transcript(path))
+        try:
+            return mode_stop(data, hc.transcript(path))
+        finally:
+            mark_read(path, data.get("session_id"))
     return 0
 
 
