@@ -512,6 +512,52 @@ class Unattended(Base):
         self.assertEqual(decision(p.hook("repo-guard", dict(d, session_id="session_me"))[1]), "ask")
 
 
+class ReviewFixes030(Base):
+    def test_check_ignore_with_outside_path(self):
+        p = self.project({}, PROGRESS.format(cmd="true"))
+        p.write(".gitignore", "work/\n")
+        p.set_transcript([user("돌려 줘"), tool("Write", file_path=os.path.join(p.dir, "work", "결과.md")),
+                          tool("Write", file_path="/tmp/밖.md")])
+        _, out, _ = p.hook("stop-check", {"session_id": "o1", "transcript_path": p.transcript})
+        self.assertEqual(out["decision"], "block")  # 밖 파일 때문에 막히는 것은 맞음
+        self.assertNotIn("결과.md", out["reason"])  # 무시된 파일은 이유에서 빠짐
+
+    def test_cloud_session_id_forms(self):
+        p = self.project({"unattended": ["session_ABC"]})
+        d = json.dumps({"tool_name": "x__add_repo", "tool_input": {"repo": "b"}, "session_id": "uuid-1"})
+        r = subprocess.run([sys.executable, os.path.join(HOOKS, "repo-guard.py")], input=d, capture_output=True,
+                           text=True, env=p.env(CLAUDE_CODE_REMOTE_SESSION_ID="cse_ABC"), cwd=p.dir)
+        self.assertEqual(json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_previous_turn_final_not_rechecked(self):
+        p = self.project({})
+        p.set_transcript([user("요약"), say("Here is the summary of everything we did today in detail.")])
+        data = {"transcript_path": p.transcript, "session_id": "k9"}
+        p.hook("korean-guard", data, "stop")  # 끝 점검이 기록 끝을 읽은 곳으로 둠
+        with open(p.transcript, "a", encoding="utf-8") as f:
+            for e in (user("다음 일"), tool("Bash", command="ls")):
+                f.write(json.dumps(e, ensure_ascii=False) + "\n")
+        self.assertEqual(p.hook("korean-guard", data, "post")[0], 0)
+
+    def test_older_live_copy_is_not_used(self):
+        p = self.project({"set": "B-app"}, PROGRESS.format(cmd="true"))
+        os.makedirs(os.path.join(p.dir, ".claude/harness-state/harness/core/hooks"))
+        p.write(".claude/harness-state/harness/VERSION", "0.0.1\n")
+        os.makedirs(os.path.join(p.dir, ".claude/harness"))
+        shutil.copytree(os.path.join(ROOT, "core"), os.path.join(p.dir, ".claude/harness/core"))
+        p.write(".claude/harness/VERSION", "9.0.0\n")
+        e = p.env(HARNESS_SOURCE_URL="file:///없는곳")
+        r = subprocess.run(["bash", SYNC, "start"], input=json.dumps({"source": "startup"}), capture_output=True,
+                           text=True, env=e, cwd=p.dir)
+        self.assertIn("판 9.0.0", r.stdout)  # 더 새것인 저장소 판으로 돎
+
+    def test_old_sync_script_noticed(self):
+        p = self.project({}, PROGRESS.format(cmd="true"))
+        p.write(".claude/harness-sync.sh", "# 옛 받기 장치\n")
+        _, out, _ = p.hook("session-start", {"source": "startup"})
+        self.assertIn("받기 장치(.claude/harness-sync.sh)가 옛 판", out)
+
+
 class Stats(Base):
     def test_hooks_never_touch_tracked_logs_and_report_moves_them(self):
         p = self.project({"unattended": True}, PROGRESS.format(cmd="echo 돌았음 >> ran.txt"))

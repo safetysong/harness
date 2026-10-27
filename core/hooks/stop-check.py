@@ -105,17 +105,23 @@ def progress_missing(data, cfg):
 
 def not_ignored(paths):
     """git이 무시하는(.gitignore) 파일은 뺀다. git이 없으면 그대로."""
-    if not paths:
+    proj = os.path.realpath(hc.project_dir())
+    rel = {}
+    for x in paths:  # 프로젝트 밖 파일은 git에 물을 수 없으니(물으면 전체가 실패) 그대로 둔다
+        full = os.path.realpath(x if os.path.isabs(x) else os.path.join(proj, x))
+        if full.startswith(proj + os.sep):
+            rel[x] = os.path.relpath(full, proj).replace(os.sep, "/")
+    if not rel:
         return paths
     try:
-        p = subprocess.run(["git", "check-ignore", "--stdin", "-z"], cwd=hc.project_dir(), capture_output=True,
-                           input="\0".join(paths).encode("utf-8"), timeout=20)
+        p = subprocess.run(["git", "check-ignore", "--stdin", "-z"], cwd=proj, capture_output=True,
+                           input="\0".join(rel.values()).encode("utf-8"), timeout=20)
     except Exception:
         return paths
     if p.returncode not in (0, 1):
         return paths
     ignored = {x.decode("utf-8", "replace") for x in p.stdout.split(b"\0") if x}
-    return [x for x in paths if x not in ignored]
+    return [x for x in paths if rel.get(x) not in ignored]
 
 
 def guard_said(p):

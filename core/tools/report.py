@@ -23,7 +23,11 @@ def main():
         print("읽기 전용이라 기록을 옮기지 않았어요.")
         return 0
     days = hc.flush_stats()
-    lines = hc.flush_mistakes()
+    try:
+        lines = hc.flush_mistakes()
+    except OSError as e:
+        print("실수기록.md 를 쓰지 못했어요(%s). 숫자 기록은 옮겼어요. 모아 둔 실수는 그대로 남겨 둡니다." % e)
+        return 1
     if not days and not lines:
         print("옮길 기록이 없어요.")
     else:

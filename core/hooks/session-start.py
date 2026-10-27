@@ -65,9 +65,15 @@ def device_line(cfg, infos, files):
     n = work_guard_week()
     if n is not None:
         parts.append("업무 지킴이 경고 최근 7일 %d건" % n)
-    tracked = hc.read_text(os.path.join(hc.project_dir(), ".claude", "harness", "VERSION"))
-    if tracked and tracked.strip() != hc.harness_version():
-        parts.append("저장소에 실린 판 %s, 돌고 있는 판 %s(받은 판) → upgrade PR 필요" % (tracked.strip(), hc.harness_version()))
+    if not os.environ.get("HARNESS_ROOT"):  # 플러그인으로 쓸 때는 upgrade 가 필요 없음
+        tracked = hc.read_text(os.path.join(hc.project_dir(), ".claude", "harness", "VERSION"))
+        if tracked and tracked.strip() != hc.harness_version():
+            parts.append("저장소에 실린 판 %s, 돌고 있는 판 %s(받은 판) → upgrade PR 필요"
+                         % (tracked.strip(), hc.harness_version()))
+        mine = hc.read_text(os.path.join(hc.project_dir(), ".claude", "harness-sync.sh"))
+        latest = hc.read_text(os.path.join(hc.HARNESS_ROOT, "bootstrap", "harness-sync.sh"))
+        if mine is not None and latest is not None and mine != latest:
+            parts.append("받기 장치(.claude/harness-sync.sh)가 옛 판 → upgrade PR 필요")
     days, lines = hc.pending_summary()
     if days or lines:
         parts.append("기록 대기(숫자 %d일, 실수 %d줄) → PR 올릴 때 `bash .claude/harness-sync.sh report`" % (days, lines))
