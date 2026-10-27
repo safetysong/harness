@@ -417,6 +417,46 @@ class MistakeLog(Base):
 
 
 
+class ReviewFixes(Base):
+    def test_read_only_negation_and_later_logging(self):
+        p = self.project({"unattended": True})
+        p.set_transcript([user("읽기만 하지 말고 고쳐 줘")])
+        d = {"tool_name": "x__add_repo", "tool_input": {"repo": "b"}, "transcript_path": p.transcript}
+        p.hook("repo-guard", d)
+        p.hook("repo-guard", d)
+        self.assertTrue(os.path.exists(os.path.join(p.dir, "실수기록.md")))
+        q = self.project({"unattended": True})
+        q.set_transcript([user("읽기만 해")])
+        d["transcript_path"] = q.transcript
+        q.hook("repo-guard", d)
+        q.hook("repo-guard", d)
+        self.assertFalse(os.path.exists(os.path.join(q.dir, "실수기록.md")))
+        # 같은 프로젝트의 다음 보통 세션에서는 적힌다
+        q.set_transcript([user("고쳐 줘")])
+        q.hook("repo-guard", d)
+        self.assertTrue(os.path.exists(os.path.join(q.dir, "실수기록.md")))
+
+    def test_edit_failures_are_mistakes(self):
+        p = self.project({})
+        data = {"tool_name": "Edit", "error": "String to replace not found in file."}
+        p.hook("mistake-log", data)
+        _, out, _ = p.hook("mistake-log", data)
+        self.assertIn("실수 기록", out["hookSpecificOutput"]["additionalContext"])
+        self.assertIn("String to replace", p.read("실수기록.md"))
+
+    def test_missing_set_folder_named(self):
+        p = self.project({"set": "B-ap"})
+        _, out, _ = p.hook("session-start", {"source": "startup"})
+        self.assertIn("B-ap(없음", out)
+
+    def test_bad_stats_file_does_not_block_flush(self):
+        p = self.project({"unattended": True})
+        p.write(".claude/harness-stats.jsonl", '{"date": "2026-01-01", "counts": [1]}\nnot json\n')
+        p.hook("repo-guard", {"tool_name": "x__add_repo", "tool_input": {"repo": "b"}})
+        p.hook("stop-check", {"session_id": "b1"})
+        self.assertIn("막음:저장소지킴이", p.read(".claude/harness-stats.jsonl"))
+
+
 class Stats(Base):
     def test_daily_line_and_fingerprint_ignores_it(self):
         p = self.project({"unattended": True}, PROGRESS.format(cmd="echo 돌았음 >> ran.txt"))
@@ -607,6 +647,31 @@ class Sync(Base):
         # 다시 해도 같은 결과
         self.sync(p, "upgrade")
         self.assertEqual(json.loads(p.read(".claude/settings.json")), st)
+
+    def test_upgrade_finds_quoted_script_and_keeps_bad_json(self):
+        p = self.project({"set": "B-app"})
+        mine = {"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop_check.py"}
+        p.write(".claude/hooks/stop_check.py", "# 진행상황 검사\n")
+        p.write(".claude/settings.json", json.dumps({"hooks": {"Stop": [{"hooks": [mine]}]}}))
+        r = self.sync(p, "upgrade")
+        self.assertIn("stop_check.py", r.stdout)
+        self.assertIs(json.loads(p.read(".claude/harness.json"))["progress_check"], False)
+        q = self.project({"set": "B-app"})
+        q.write(".claude/hooks/stop_check.py", "# 진행상황 검사\n")
+        q.write(".claude/settings.json", json.dumps({"hooks": {"Stop": [{"hooks": [mine]}]}}))
+        self.sync(q, "sync")
+        q.write(".claude/harness.json", '{"set": "B-app", "repo": "a/b",}')
+        r = subprocess.run([sys.executable, os.path.join(q.dir, ".claude/harness/core/tools/merge_settings.py"), q.dir],
+                           capture_output=True, text=True)
+        self.assertIn("읽지 못했어요", r.stdout)
+        self.assertEqual(q.read(".claude/harness.json"), '{"set": "B-app", "repo": "a/b",}')
+
+    def test_upgrade_bad_set_type(self):
+        p = self.project({"set": ["A-research", 1]})
+        p.write(".claude/harness-sync.sh", "# 옛 받기 장치\n")
+        r = self.sync(p, "upgrade")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(p.read(".claude/harness-sync.sh"), "# 옛 받기 장치\n")
 
     def test_upgrade_stops_on_bad_hash(self):
         p = self.project({"set": "B-app"})

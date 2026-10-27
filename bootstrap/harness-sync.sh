@@ -70,12 +70,12 @@ except Exception:
     status("하네스 받기 꺼짐(.claude/harness.json 없음)")
 raw = cfg.get("set")
 names = raw if isinstance(raw, list) else [raw] if raw else []
-names = [n for n in names if n != "core"] or ["core"]  # 세트가 없으면 바닥판만
-set_name = " ".join(names)
 source = cfg.get("source", "safetysong/harness")
 if (len(names) > 3 or not all(isinstance(n, str) and re.fullmatch(r"[A-Za-z0-9_-]+", n) for n in names)
-        or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", source)):
+        or not isinstance(source, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", source)):
     status("하네스 받기 꺼짐(harness.json의 set 또는 source가 이상함)")
+names = [n for n in names if n != "core"] or ["core"]  # 세트가 없으면 바닥판만
+set_name = " ".join(names)
 base = os.environ.get("HARNESS_SOURCE_URL") or "https://raw.githubusercontent.com/%s/main" % source
 
 
@@ -204,10 +204,12 @@ case "$cmd" in
       exit 0
     fi
     [ -n "$PY" ] || { echo "파이썬(3.8 이상)을 찾지 못해 upgrade를 못 해요."; exit 1; }
+    rm -f "$STATE/sync-status.txt"  # 지난 결과를 이번 결과로 잘못 읽지 않게
     do_sync
     cat "$STATE/sync-status.txt" 2>/dev/null
     case "$(cat "$STATE/sync-status.txt" 2>/dev/null)" in
-      *경고*|*꺼짐*|*"확인 못 함"*|*실패*) echo "새 판을 받지 못해 받기 장치와 settings는 그대로 둡니다."; exit 1 ;;
+      *"받음("*|*"최신 판"*) ;;
+      *) echo "새 판을 받지 못해 받기 장치와 settings는 그대로 둡니다."; exit 1 ;;
     esac
     new="$ROOT/bootstrap/harness-sync.sh"
     self="$PROJECT/.claude/harness-sync.sh"
