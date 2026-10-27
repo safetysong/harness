@@ -3,10 +3,10 @@
 
 저장소가 여러 개 붙은 클라우드 세션은 다시 뜰 때 어느 저장소의 훅도 읽지 않는다(공식 문서).
 그래서 add_repo는 언제나 사용자에게 허락 창을 띄운다. 아무도 없는 예약 실행 세션은 허락 창에서
-멈추므로 harness.json에 "unattended": true 를 두면 허락 창 대신 막는다.
+멈추므로 harness.json에 "unattended": true 를 두면 허락 창 대신 막는다. 세션마다 다르게 하려면
+환경 변수 HARNESS_UNATTENDED=1(막기) 또는 0(허락 창)이 harness.json 보다 앞선다.
 
 harness.json에 repo(예 "owner/name")를 정하면 아래도 같은 방식으로 다룬다.
-- 다른 저장소를 가리키는 GitHub 도구(owner/repo가 다름)
 - 다른 저장소를 가리키는 GitHub 도구(owner/repo가 다름)
 - repo: 조건 없이 GitHub 전체를 뒤지는 검색
 - 다른 저장소 git clone, git remote add / set-url, gh repo clone (Bash와 PowerShell 도구 모두)
@@ -61,7 +61,7 @@ def main():
     global MODE
     data = hc.read_input()
     cfg = hc.load_config()
-    MODE = "deny" if cfg.get("unattended") else "ask"
+    MODE = "deny" if hc.is_unattended(cfg) else "ask"
     tool = data.get("tool_name") or ""
     ti = data.get("tool_input") or {}
     if tool.endswith("__add_repo"):

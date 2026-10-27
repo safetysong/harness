@@ -90,6 +90,16 @@ def set_infos(cfg):
     return out
 
 
+def is_unattended(cfg=None):
+    """아무도 없이 도는 세션인가. 환경 변수 HARNESS_UNATTENDED(1/0)가 harness.json 의 unattended 보다 앞선다."""
+    env = os.environ.get("HARNESS_UNATTENDED", "").strip().lower()
+    if env in ("1", "true", "yes"):
+        return True
+    if env in ("0", "false", "no"):
+        return False
+    return bool((cfg if cfg is not None else load_config()).get("unattended"))
+
+
 def is_read_only():
     """읽기만 하는 세션이면 프로젝트 파일(실수기록.md, 장치 기록)을 고치지 않는다.
 

@@ -33,6 +33,8 @@ curl -fsSL https://raw.githubusercontent.com/safetysong/harness/main/bootstrap/h
 ```
 - `set`: 세트 하나(`"C-submission"`), 두 세트(`["A-research", "B-app"]`), 바닥판만(`"core"` 또는 비움).
 - 아무도 없이 도는 예약 실행 세션이면 `"unattended": true` 를 넣습니다(허락 창 대신 막기).
+  같은 저장소에 사람이 쓰는 세션도 있으면, 그 세션 환경에 `HARNESS_UNATTENDED=0` 을 두면 허락 창이 다시 뜹니다
+  (반대로 harness.json 에 없이 예약 실행 환경에만 `HARNESS_UNATTENDED=1` 을 둬도 됩니다).
 - 읽기만 하는 저장소·세션이면 `"read_only": true`. 세션 첫 말에 「읽기만」이 있어도 읽기 전용으로 봅니다.
   읽기 전용이면 실수기록.md와 장치 숫자 기록을 고치지 않습니다.
 - 세트 C면 `submission` 칸을 요강에 맞춰 채웁니다:
@@ -44,7 +46,8 @@ curl -fsSL https://raw.githubusercontent.com/safetysong/harness/main/bootstrap/h
 ```bash
 bash .claude/harness-sync.sh sync
 ```
-「새 판 0.x.x 받음」이 나와야 합니다. 「경고」나 「네트워크」가 나오면 멈추고 사용자에게 그대로 알립니다.
+「새 판 0.x.x 받음」이 나와야 합니다. 「막 올라와 아직 다 퍼지지 않았어요」가 나오면 몇 분 뒤 다시 합니다.
+「경고」나 「네트워크」가 나오면 멈추고 사용자에게 그대로 알립니다.
 
 ## 4. 받기 장치와 settings.json 맞추기
 ```bash
