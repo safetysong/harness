@@ -119,6 +119,9 @@ def main():
     if dl:
         out.append(dl)
     if data.get("source", "startup") == "startup":
+        core_guide = hc.read_text(os.path.join(hc.HARNESS_ROOT, "core", "guide.md"))
+        if core_guide:
+            out.append(core_guide.strip())
         for sd, _ in infos:
             guide = hc.read_text(os.path.join(sd, "guide.md"))
             if guide:
