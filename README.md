@@ -86,7 +86,7 @@ PC에서는 플러그인으로도 쓸 수 있습니다: `/plugin marketplace add
 
 ## 폴더
 ```
-core/        바닥판: 훅(hooks/), CLAUDE.md 틀, 진행상황.md 틀, settings 묶음
+core/        바닥판: 훅(hooks/), 시작 안내(guide.md), CLAUDE.md 틀, 진행상황.md 틀, settings 묶음
 sets/        세트 A·B·C: 안내(guide.md), 검사기(checks/), 검토 에이전트(agents/)
 bootstrap/   받기 장치(harness-sync.sh)와 까는 순서(install.md)
 dist/        세트별 묶음(자동으로 만듦)

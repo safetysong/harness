@@ -1,21 +1,21 @@
 {
-  "version": "0.3.4",
+  "version": "0.3.5",
   "bundles": {
     "core": {
       "file": "dist/core.tar",
-      "sha256": "888c73cb57aa1f681622cb590a0875cc7578cec2e76fc13cd1c3936e030ec7bf"
+      "sha256": "d0fbad39049f2c9fd6cd4feff19cab0e79dc31f8d6fa0e3c72fd3f4f6615becc"
     },
     "A-research": {
       "file": "dist/A-research.tar",
-      "sha256": "80bc1544d4108284575ee97fbfbfe192b76edb2252f6126f8487a0f2b89dcea8"
+      "sha256": "0aa5d84a78675333d81c4527f78140d556e49acf58a92d276f928f86747133ee"
     },
     "B-app": {
       "file": "dist/B-app.tar",
-      "sha256": "1883cd549e19bd11dd9fb14251b3f4d0996be4039588ce4581ffefe8f8f70090"
+      "sha256": "1b5e2064e3d43a112bf60d5ddaee369df0d8e8c51f26551ede71586e412fb65c"
     },
     "C-submission": {
       "file": "dist/C-submission.tar",
-      "sha256": "e4d47d0fa3be7afbc1c25aaf4d7357b8524dadce972c10af58e8365e2fa4d6ef"
+      "sha256": "9c2ccb52a2b0e99d661f25e15ccae078e2334ff15a729f0145b817fe868d5be4"
     }
   }
 }

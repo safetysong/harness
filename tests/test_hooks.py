@@ -732,6 +732,13 @@ class SessionStart(Base):
         self.assertIn("진행상황 파일(진행상황.md)이 없어요", out)
         self.assertIn("[장치 상태]", out)
 
+    def test_core_guide_on_startup_only(self):
+        p = self.project({})
+        _, out, _ = p.hook("session-start", {"source": "startup"})
+        self.assertIn("바닥판 안내: 메일 첨부", out)
+        _, out, _ = p.hook("session-start", {"source": "resume"})
+        self.assertNotIn("바닥판 안내", out)
+
     def test_long_front_counted(self):
         p = self.project({}, "## 지금 상태\n" + "줄\n" * 45)
         _, out, _ = p.hook("session-start", {"source": "resume"})
