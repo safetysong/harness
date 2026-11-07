@@ -21,7 +21,25 @@ def project_dir():
     return os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
 
 
+def plugin_mode():
+    """PC 기본판(플러그인)으로 도는가. 플러그인 훅은 HARNESS_ROOT 를 넘긴다."""
+    return bool(os.environ.get("HARNESS_ROOT"))
+
+
+def pc_mode():
+    """PC 기본판으로 돌고, 이 폴더에는 하네스 설정(.claude/harness.json)이 없다."""
+    return plugin_mode() and not os.path.isfile(os.path.join(project_dir(), ".claude", "harness.json"))
+
+
 def state_dir():
+    if pc_mode():
+        # 하네스를 깔지 않은 폴더에는 아무것도 쓰지 않는다(git에 모르는 파일이 생기지 않게). 기록은 PC 사용자 폴더에 둔다
+        real = os.path.realpath(project_dir())
+        tag = "%s-%s" % (re.sub(r"[^\w.-]", "_", os.path.basename(real) or "root")[:40],
+                         hashlib.sha1(real.encode("utf-8", "replace")).hexdigest()[:10])
+        d = os.path.join(os.path.expanduser("~"), ".claude", "harness-state", "projects", tag)
+        os.makedirs(d, exist_ok=True)
+        return d
     d = os.path.join(project_dir(), ".claude", "harness-state")
     os.makedirs(d, exist_ok=True)
     return d
@@ -52,6 +70,23 @@ def load_config():
         return cfg if isinstance(cfg, dict) else {}
     except Exception:
         return {}
+
+
+def guarded_repo(cfg):
+    """저장소 지킴이가 지킬 저장소(owner/name). 설정의 repo, 없으면 PC 기본판에서만 git origin 주소로 찾는다."""
+    repo = str(cfg.get("repo") or "").strip()
+    if repo or not plugin_mode():
+        return repo
+    try:
+        import subprocess
+        p = subprocess.run(["git", "remote", "get-url", "origin"], cwd=project_dir(), capture_output=True,
+                           text=True, timeout=10)
+    except Exception:
+        return ""
+    url = p.stdout.strip() if p.returncode == 0 else ""
+    m = re.match(r"(?:https?://|ssh://)?(?:[^@/]+@)?github\.com[:/]+([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$", url) \
+        or re.match(r"https?://(?:127\.0\.0\.1|localhost)(?::\d+)?/git/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$", url)
+    return "%s/%s" % m.groups() if m else ""
 
 
 def harness_version():

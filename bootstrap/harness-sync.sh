@@ -19,6 +19,10 @@
 set -u
 
 PROJECT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+if [ -n "${HARNESS_ROOT:-}" ] && [ -f "$PROJECT/.claude/harness-sync.sh" ]; then
+  # PC 기본판(플러그인)인데 이 프로젝트에 하네스가 따로 깔려 있으면 프로젝트 쪽에 맡긴다(훅이 두 번 돌지 않게)
+  case "${1:-}" in start|hook) cat >/dev/null 2>&1; exit 0 ;; esac
+fi
 STATE="$PROJECT/.claude/harness-state"
 TRACKED="$PROJECT/.claude/harness"
 LIVE="$STATE/harness"
@@ -70,8 +74,8 @@ run_hook() {
 }
 
 do_sync() {
+  [ -n "${HARNESS_ROOT:-}" ] && return 0   # 플러그인으로 쓸 때는 플러그인이 판을 관리(프로젝트에 아무것도 쓰지 않음)
   [ -n "$PY" ] || { mkdir -p "$STATE"; echo "하네스 받기 꺼짐(파이썬 없음)" > "$STATE/sync-status.txt"; return 0; }
-  [ -n "${HARNESS_ROOT:-}" ] && return 0   # 플러그인으로 쓸 때는 플러그인이 판을 관리
   mkdir -p "$STATE"
   PROJECT="$PROJECT" ROOT="$ROOT" TARGET="$LIVE" STATE="$STATE" "$PY" - <<'PYEOF' || true
 import hashlib, json, os, re, shutil, sys, tarfile, tempfile, time, urllib.request

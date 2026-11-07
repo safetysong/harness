@@ -48,8 +48,8 @@ Claude는 [bootstrap/install.md](bootstrap/install.md) 순서대로 합니다. �
 4. `CLAUDE.md`, `진행상황.md` 틀을 채웁니다.
 5. 다음 세션부터 켜집니다.
 
-PC에서는 플러그인으로도 쓸 수 있습니다: `/plugin marketplace add safetysong/harness` 뒤 `/plugin install harness`.
-플러그인과 프로젝트 설치를 같이 하면 훅이 두 번 도니 하나만 씁니다.
+PC에서는 플러그인(PC 기본판)으로 모든 폴더에 깔 수 있습니다. 순서는 [bootstrap/pc-install.md](bootstrap/pc-install.md).
+하네스가 따로 깔린 프로젝트에서는 플러그인이 비켜서서 훅이 두 번 돌지 않습니다.
 
 ## 업데이트되는 원리
 1. 이 저장소 main에 새 판이 병합되면, 세트마다 묶음 파일(`dist/세트.tar`)과

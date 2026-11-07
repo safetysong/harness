@@ -44,6 +44,8 @@ def work_guard_week():
 
 def device_line(cfg, infos, files):
     parts = ["판 %s" % hc.harness_version()]
+    if hc.pc_mode():
+        parts.append("PC 기본판(이 폴더엔 하네스 설정 없음)")
     claude_md = hc.read_text(os.path.join(hc.project_dir(), "CLAUDE.md"))
     if claude_md is not None:
         parts.append("지침 %d자" % len(claude_md))
@@ -59,8 +61,9 @@ def device_line(cfg, infos, files):
     if hc.is_read_only():
         parts.append("읽기 전용(실수기록·장치 기록 안 고침)")
     guards = ["한국어", "완료 조건", "실수 기록"]
-    if cfg.get("repo"):
-        guards.insert(0, "저장소(%s)" % cfg["repo"])
+    repo = hc.guarded_repo(cfg)
+    if repo:
+        guards.insert(0, "저장소(%s)" % repo)
     parts.append("켜진 지킴이: " + ", ".join(guards))
     n = work_guard_week()
     if n is not None:
@@ -75,7 +78,7 @@ def device_line(cfg, infos, files):
         if mine is not None and latest is not None and mine != latest:
             parts.append("받기 장치(.claude/harness-sync.sh)가 옛 판 → upgrade PR 필요")
     days, lines = hc.pending_summary()
-    if days or lines:
+    if (days or lines) and not hc.pc_mode():  # PC 기본판 기록은 PC에만 남고 저장소로 옮기지 않는다
         parts.append("기록 대기(숫자 %d일, 실수 %d줄) → PR 올릴 때 `bash .claude/harness-sync.sh report`" % (days, lines))
     sync = hc.read_text(os.path.join(hc.state_dir(), "sync-status.txt"))
     if sync:
@@ -105,7 +108,9 @@ def main():
     out = []
     files = progress_files(cfg)
     md = hc.read_text(hc.progress_path(cfg))
-    if md is None:
+    if md is None and hc.pc_mode():
+        pass  # PC 기본판: 하네스를 깔지 않은 폴더라 진행상황 파일을 만들라고 하지 않는다
+    elif md is None:
         out.append("진행상황 파일(%s)이 없어요. 하네스 틀(core/진행상황.template.md)로 먼저 만들어 주세요."
                    % (cfg.get("progress_file") or "진행상황.md"))
     else:
