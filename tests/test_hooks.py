@@ -739,6 +739,17 @@ class SessionStart(Base):
         _, out, _ = p.hook("session-start", {"source": "resume"})
         self.assertNotIn("바닥판 안내", out)
 
+    def test_long_progress_is_clipped_and_status_first(self):
+        md = ("## 지금 상태\n" + "".join("- 상태 %d\n" % i for i in range(300))
+              + "## 다음 할 일\n" + "".join("- 할 일 %d\n" % i for i in range(300)) + "## 꼭 기억\n- 기억\n")
+        p = self.project({}, md)
+        _, out, _ = p.hook("session-start", {"source": "startup"})
+        self.assertTrue(out.startswith("[장치 상태]"))
+        self.assertLess(len(out.splitlines()), 80)
+        self.assertIn("288줄 더 있어요", out)
+        self.assertNotIn("상태 299", out)
+        self.assertIn("## 꼭 기억", out)
+
     def test_long_front_counted(self):
         p = self.project({}, "## 지금 상태\n" + "줄\n" * 45)
         _, out, _ = p.hook("session-start", {"source": "resume"})
