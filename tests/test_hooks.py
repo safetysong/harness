@@ -788,6 +788,14 @@ class PcKit(Base):
         _, out, _ = p.hook("session-start", {"source": "resume"}, env=p.pc_env)
         self.assertIn("저장소(me/mine)", out)
 
+    def test_origin_not_used_when_project_has_config(self):
+        p = self.pc({"set": "core"})
+        p.git("remote", "add", "origin", "https://github.com/me/mine.git")
+        _, out, _ = p.hook("repo-guard", {"tool_name": "Bash",
+                                          "tool_input": {"command": "git clone https://github.com/other/x"}},
+                           env=p.pc_env)
+        self.assertIsNone(decision(out))
+
     def test_origin_not_used_without_plugin(self):
         p = self.project({})
         p.git("remote", "add", "origin", "https://github.com/me/mine.git")
@@ -798,6 +806,7 @@ class PcKit(Base):
     def test_plugin_steps_aside_for_project_install(self):
         p = self.pc({"repo": "me/mine"})
         p.write(".claude/harness-sync.sh", "# 프로젝트 설치\n")
+        p.write(".claude/settings.json", '{"hooks": {"Stop": [{"hooks": [{"command": "bash .claude/harness-sync.sh hook stop-check"}]}]}}')
         env = dict(p.env(**p.pc_env))
         for args in (["start"], ["hook", "repo-guard"]):
             r = subprocess.run(["bash", SYNC, *args], input=json.dumps({"tool_name": "add_repo"}),

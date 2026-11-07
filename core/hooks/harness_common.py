@@ -75,7 +75,7 @@ def load_config():
 def guarded_repo(cfg):
     """저장소 지킴이가 지킬 저장소(owner/name). 설정의 repo, 없으면 PC 기본판에서만 git origin 주소로 찾는다."""
     repo = str(cfg.get("repo") or "").strip()
-    if repo or not plugin_mode():
+    if repo or not pc_mode():
         return repo
     try:
         import subprocess

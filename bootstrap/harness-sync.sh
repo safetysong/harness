@@ -19,7 +19,8 @@
 set -u
 
 PROJECT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-if [ -n "${HARNESS_ROOT:-}" ] && [ -f "$PROJECT/.claude/harness-sync.sh" ]; then
+if [ -n "${HARNESS_ROOT:-}" ] && [ -f "$PROJECT/.claude/harness-sync.sh" ] \
+   && grep -q "harness-sync.sh" "$PROJECT/.claude/settings.json" 2>/dev/null; then
   # PC 기본판(플러그인)인데 이 프로젝트에 하네스가 따로 깔려 있으면 프로젝트 쪽에 맡긴다(훅이 두 번 돌지 않게)
   case "${1:-}" in start|hook) cat >/dev/null 2>&1; exit 0 ;; esac
 fi
