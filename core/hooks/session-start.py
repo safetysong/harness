@@ -101,11 +101,22 @@ def deadline_line(cfg):
     return "[마감] %s 마감까지 %d일 남았어요." % (dl, left)
 
 
+SECTION_MAX = 12  # 칸마다 보여 줄 줄 수. 나머지는 파일에서 읽게 한다(시작 안내가 화면을 넘치지 않게)
+TOTAL_MAX = 40  # 진행상황 칸들을 합쳐 보여 줄 줄 수
+
+
+def clip(body, limit):
+    lines = [x for x in body.splitlines() if x.strip()]
+    if len(lines) <= limit:
+        return "\n".join(lines), len(lines)
+    return "\n".join(lines[:limit]) + "\n… (%d줄 더 있어요. 진행상황 파일에서 읽으세요)" % (len(lines) - limit), limit
+
+
 def main():
     data = hc.read_input()
     cfg = hc.load_config()
     infos = hc.set_infos(cfg)
-    out = []
+    out = []  # 장치 줄은 맨 앞에 둔다(화면에 앞부분만 보여도 장치 상태는 보이게)
     md = hc.read_text(hc.progress_path(cfg))
     # PC 기본판에서 하네스 없는 큰 폴더(사용자 폴더 등)를 매번 뒤지지 않게, 뿌리에 진행상황 파일이 없으면 찾지 않는다
     files = [] if (md is None and hc.pc_mode()) else progress_files(cfg)
@@ -117,10 +128,17 @@ def main():
     else:
         rel = [os.path.relpath(f, hc.project_dir()) for f in files]
         out.append("작업 전에 진행상황 파일을 Read로 먼저 읽으세요: " + ", ".join(rel))
+        left = TOTAL_MAX
         for title in ("지금 상태", "완료 조건", "다음 할 일", "꼭 기억"):
             body = hc.section(md, title)
-            if body:
-                out.append("## %s\n%s" % (title, body))
+            if not body:
+                continue
+            if left <= 0:
+                out.append("## %s\n(길어서 줄임. 진행상황 파일에서 읽으세요)" % title)
+                continue
+            text, used = clip(body, min(SECTION_MAX, left))
+            left -= used
+            out.append("## %s\n%s" % (title, text))
     dl = deadline_line(cfg)
     if dl:
         out.append(dl)
@@ -132,7 +150,7 @@ def main():
             guide = hc.read_text(os.path.join(sd, "guide.md"))
             if guide:
                 out.append(guide.strip())
-    out.append(device_line(cfg, infos, files))
+    out.insert(0, device_line(cfg, infos, files))
     sys.stdout.write("\n\n".join(out) + "\n")
 
 
