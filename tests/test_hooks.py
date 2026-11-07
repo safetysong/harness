@@ -60,10 +60,10 @@ class Project:
         env.update(extra)
         return env
 
-    def hook(self, name, data, *args):
+    def hook(self, name, data, *args, env=None):
         p = subprocess.run([sys.executable, os.path.join(HOOKS, name + ".py"), *args],
                            input=json.dumps(data, ensure_ascii=False), capture_output=True, text=True,
-                           cwd=self.dir, env=self.env())
+                           cwd=self.dir, env=self.env(**(env or {})))
         out = json.loads(p.stdout) if p.stdout.strip().startswith("{") else p.stdout
         return p.returncode, out, p.stderr
 
@@ -743,6 +743,70 @@ class SessionStart(Base):
         p = self.project({}, "## 지금 상태\n" + "줄\n" * 45)
         _, out, _ = p.hook("session-start", {"source": "resume"})
         self.assertIn("앞 칸 40줄 넘는 진행상황 1개", out)
+
+
+class PcKit(Base):
+    """PC 기본판(플러그인, HARNESS_ROOT 있음)."""
+
+    def pc(self, cfg=None, progress=None):
+        p = self.project(cfg, progress)
+        home = tempfile.mkdtemp(prefix="harness-home-")
+        self.addCleanup(shutil.rmtree, home, True)
+        p.pc_env = {"HARNESS_ROOT": ROOT, "HOME": home, "USERPROFILE": home}
+        p.home = home
+        return p
+
+    def test_no_files_in_plain_folder(self):
+        p = self.pc()
+        _, out, _ = p.hook("session-start", {"source": "startup"}, env=p.pc_env)
+        self.assertNotIn("진행상황 파일(", out)
+        self.assertIn("PC 기본판", out)
+        f = p.write("a.txt", "x")
+        p.set_transcript([user("고쳐"), tool("Write", file_path=f, content="x")])
+        _, out, _ = p.hook("stop-check", {"session_id": "pc", "transcript_path": p.transcript}, env=p.pc_env)
+        self.assertNotEqual((out or {}).get("decision") if isinstance(out, dict) else None, "block")
+        self.assertFalse(os.path.exists(os.path.join(p.dir, ".claude", "harness-state")))
+        self.assertTrue(os.path.isdir(os.path.join(p.home, ".claude", "harness-state", "projects")))
+
+    def test_progress_still_checked_when_file_exists(self):
+        p = self.pc(None, "## 완료 조건\n- [ ] 끝 · 확인: `false`\n")
+        _, out, _ = p.hook("stop-check", {"session_id": "pc2"}, env=p.pc_env)
+        self.assertEqual(out["decision"], "block")
+
+    def test_repo_from_origin(self):
+        p = self.pc()
+        p.git("remote", "add", "origin", "https://github.com/me/mine.git")
+        for tool_name in ("Bash", "PowerShell"):
+            _, out, _ = p.hook("repo-guard", {"tool_name": tool_name,
+                                              "tool_input": {"command": "git clone https://github.com/other/x"}},
+                               env=p.pc_env)
+            self.assertEqual(decision(out), "ask", tool_name)
+        _, out, _ = p.hook("repo-guard", {"tool_name": "PowerShell",
+                                          "tool_input": {"command": "git clone https://github.com/me/mine"}},
+                           env=p.pc_env)
+        self.assertIsNone(decision(out))
+        _, out, _ = p.hook("session-start", {"source": "resume"}, env=p.pc_env)
+        self.assertIn("저장소(me/mine)", out)
+
+    def test_origin_not_used_without_plugin(self):
+        p = self.project({})
+        p.git("remote", "add", "origin", "https://github.com/me/mine.git")
+        _, out, _ = p.hook("repo-guard", {"tool_name": "Bash",
+                                          "tool_input": {"command": "git clone https://github.com/other/x"}})
+        self.assertIsNone(decision(out))
+
+    def test_plugin_steps_aside_for_project_install(self):
+        p = self.pc({"repo": "me/mine"})
+        p.write(".claude/harness-sync.sh", "# 프로젝트 설치\n")
+        env = dict(p.env(**p.pc_env))
+        for args in (["start"], ["hook", "repo-guard"]):
+            r = subprocess.run(["bash", SYNC, *args], input=json.dumps({"tool_name": "add_repo"}),
+                               capture_output=True, text=True, cwd=p.dir, env=env)
+            self.assertEqual((r.returncode, r.stdout), (0, ""), args)
+        os.remove(os.path.join(p.dir, ".claude", "harness-sync.sh"))
+        r = subprocess.run(["bash", SYNC, "start"], input='{"source": "startup"}',
+                           capture_output=True, text=True, cwd=p.dir, env=env)
+        self.assertIn("[장치 상태]", r.stdout)
 
 
 class ChangedFiles(Base):

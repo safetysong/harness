@@ -183,7 +183,10 @@ def check(data):
     cfg = hc.load_config()
     failures = []
     # 프로젝트에 옛 「진행상황 안 적음」 검사 장치가 있으면 harness.json "progress_check": false 로 끈다
-    missing = progress_missing(data, cfg) if cfg.get("progress_check", True) is not False else []
+    on = cfg.get("progress_check", True) is not False
+    if hc.pc_mode() and not os.path.isfile(hc.progress_path(cfg)):
+        on = False  # PC 기본판: 진행상황 파일이 없는 폴더에서는 적으라고 막지 않는다
+    missing = progress_missing(data, cfg) if on else []
     if missing:
         failures.append("- 파일(%s)을 바꿨는데 %s를 갱신하지 않았어요. 한 일·결정·사용자 지시 원문·다음 할 일을 적어 주세요."
                         % (", ".join(os.path.basename(p) for p in missing[:3]),

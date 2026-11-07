@@ -201,7 +201,7 @@ def main():
         stop("이 세션에 저장소(%s)를 더 붙이려 합니다. 붙이면 이 세션이 다시 뜰 때 자동 장치가 모두 꺼집니다. "
              "보통은 그 저장소 세션에 맡기거나 그 저장소 하나로 새 세션을 만듭니다. "
              "꼭 이 세션에 붙여야 할 때만 허락하세요." % (ti.get("repo") or "이름 모름"), "저장소붙이기")
-    repo = (cfg.get("repo") or "").strip()
+    repo = hc.guarded_repo(cfg)
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
         return  # 저장소를 정하지 않은 프로젝트는 여기까지만
     if tool.startswith("mcp__github__"):
