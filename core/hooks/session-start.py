@@ -106,8 +106,9 @@ def main():
     cfg = hc.load_config()
     infos = hc.set_infos(cfg)
     out = []
-    files = progress_files(cfg)
     md = hc.read_text(hc.progress_path(cfg))
+    # PC 기본판에서 하네스 없는 큰 폴더(사용자 폴더 등)를 매번 뒤지지 않게, 뿌리에 진행상황 파일이 없으면 찾지 않는다
+    files = [] if (md is None and hc.pc_mode()) else progress_files(cfg)
     if md is None and hc.pc_mode():
         pass  # PC 기본판: 하네스를 깔지 않은 폴더라 진행상황 파일을 만들라고 하지 않는다
     elif md is None:
